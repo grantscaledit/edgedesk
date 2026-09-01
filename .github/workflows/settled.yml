@@ -1,0 +1,21 @@
+name: settled-sweep
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"     # every 6 hours, offset off the hour
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/phase0_collect.py --settled

@@ -1,0 +1,48 @@
+# Non-secret configuration. Secrets live in .env.
+
+[gate]
+max_spread_cents      = 5
+max_overround         = 106
+min_depth_within_3c   = 100
+require_both_sides    = true
+
+[stats]
+shrinkage_k           = 10
+n_eff_half_life_days  = 90
+forfeit_window_days   = 365
+baseline_rating       = 1.00
+
+[retention]
+raw_documents_days    = 30
+
+[collector.kalshi]
+enabled          = true
+interval_minutes = 5
+book_max_spread  = 15
+book_min_volume  = 1
+settled_sweep_hours = 6
+
+# --- phase 1+ ---
+[collector.bo3]
+enabled          = false
+interval_minutes = 30
+delay_seconds    = 1
+cache_ttl_minutes = 15
+trust_rank       = 1
+
+[collector.hltv]
+enabled           = false
+fetcher           = "curl_cffi"    # -> "playwright" if blocking begins
+delay_seconds     = 4
+cache_ttl_hours   = 12
+trust_rank        = 2
+
+[collector.scores24]
+enabled = false
+trust_rank = 3
+[collector.tipsgg]
+enabled = false
+trust_rank = 4
+[collector.egamersworld]
+enabled = false
+trust_rank = 5

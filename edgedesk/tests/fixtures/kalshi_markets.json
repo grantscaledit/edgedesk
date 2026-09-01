@@ -1,0 +1,131 @@
+{
+  "_comment": "Real Kalshi field spellings (suffixed _dollars / _fp, values as strings).",
+  "markets": [
+    {
+      "ticker": "KXCS2GAME-26AUG251700BSTAUND-BSTA",
+      "event_ticker": "KXCS2GAME-26AUG251700BSTAUND",
+      "title": "BESTIA Academy wins",
+      "status": "active",
+      "close_time": "2026-08-27T21:00:00Z",
+      "result": "",
+      "rules_primary": "If BESTIA Academy wins the Gamers Club Liga Serie A 2026: BESTIA Academy vs. underw0rld CS2 match originally scheduled for Aug 25, 2026 at 5:00 PM EDT, then the market resolves to Yes.",
+      "yes_bid_dollars": "0.6300",
+      "yes_ask_dollars": "0.6600",
+      "no_bid_dollars": "0.3400",
+      "no_ask_dollars": "0.3700",
+      "last_price_dollars": "0.6500",
+      "volume_fp": "107.0000",
+      "open_interest_fp": "107.0000",
+      "yes_bid_size_fp": "64.00",
+      "yes_ask_size_fp": "12.00",
+      "liquidity_dollars": "0.0000",
+      "volume_24h_fp": "0.00",
+      "yes_sub_title": "BESTIA Academy"
+    },
+    {
+      "ticker": "KXCS2GAME-26AUG251700BSTAUND-UND",
+      "event_ticker": "KXCS2GAME-26AUG251700BSTAUND",
+      "title": "underw0rld wins",
+      "status": "active",
+      "close_time": "2026-08-27T21:00:00Z",
+      "result": "",
+      "rules_primary": "If underw0rld wins the Gamers Club Liga Serie A 2026: BESTIA Academy vs. underw0rld CS2 match originally scheduled for Aug 25, 2026 at 5:00 PM EDT, then the market resolves to Yes.",
+      "yes_bid_dollars": "0.3700",
+      "yes_ask_dollars": "0.3800",
+      "last_price_dollars": "0.3800",
+      "volume_fp": "70.0000",
+      "open_interest_fp": "65.0000",
+      "yes_bid_size_fp": "64.00",
+      "yes_ask_size_fp": "12.00",
+      "liquidity_dollars": "0.0000",
+      "volume_24h_fp": "0.00",
+      "yes_sub_title": "underw0rld"
+    },
+    {
+      "ticker": "KXCS2GAME-26AUG251430DIAUSS-DIA",
+      "event_ticker": "KXCS2GAME-26AUG251430DIAUSS",
+      "title": "Diamant Esports wins",
+      "status": "active",
+      "close_time": "2026-08-27T18:30:00Z",
+      "result": "",
+      "yes_bid_dollars": "0.1800",
+      "yes_ask_dollars": "0.7900",
+      "last_price_dollars": "0.0000",
+      "volume_fp": "0.0000",
+      "open_interest_fp": "0.0000",
+      "yes_bid_size_fp": "64.00",
+      "yes_ask_size_fp": "12.00",
+      "liquidity_dollars": "0.0000",
+      "volume_24h_fp": "0.00",
+      "yes_sub_title": "Diamant Esports"
+    },
+    {
+      "ticker": "KXCS2MAP-26AUG311230VITFUT-2-VIT",
+      "event_ticker": "KXCS2MAP-26AUG311230VITFUT-2",
+      "title": "Vitality wins map 2",
+      "status": "active",
+      "close_time": "2026-09-02T16:30:00Z",
+      "result": "",
+      "yes_bid_dollars": "0.5500",
+      "yes_ask_dollars": "0.6000",
+      "last_price_dollars": "0.5700",
+      "volume_fp": "12.0000",
+      "open_interest_fp": "12.0000",
+      "yes_bid_size_fp": "64.00",
+      "yes_ask_size_fp": "12.00",
+      "liquidity_dollars": "0.0000",
+      "volume_24h_fp": "0.00",
+      "yes_sub_title": "Vitality"
+    },
+    {
+      "ticker": "KXCS2GAME-26AUG311200BKBSTA-BSTA",
+      "event_ticker": "KXCS2GAME-26AUG311200BKBSTA",
+      "title": "BESTIA Academy wins",
+      "status": "finalized",
+      "close_time": "2026-08-31T17:49:40Z",
+      "result": "yes",
+      "yes_bid_dollars": "0.9900",
+      "yes_ask_dollars": "1.0000",
+      "last_price_dollars": "0.9900",
+      "volume_fp": "6809.2300",
+      "open_interest_fp": "0.0000",
+      "yes_bid_size_fp": "64.00",
+      "yes_ask_size_fp": "12.00",
+      "liquidity_dollars": "0.0000",
+      "volume_24h_fp": "0.00",
+      "yes_sub_title": "BESTIA Academy"
+    }
+  ],
+  "orderbook": {
+    "orderbook_fp": {
+      "yes_dollars": [
+        [
+          "0.61",
+          "108.00"
+        ],
+        [
+          "0.62",
+          "52.00"
+        ],
+        [
+          "0.63",
+          "201.00"
+        ]
+      ],
+      "no_dollars": [
+        [
+          "0.30",
+          "253.00"
+        ],
+        [
+          "0.33",
+          "6.00"
+        ],
+        [
+          "0.34",
+          "134.00"
+        ]
+      ]
+    }
+  }
+}
