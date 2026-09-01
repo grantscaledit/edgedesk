@@ -48,6 +48,22 @@ No JS build step. Server-rendered HTML only.
 7. **Reserved words.** Postgres reserves `window` and `values` — the columns
    are `stat_window` and `source_values`. Don't "fix" them back.
 
+## bo3.gg API traps (verified 2026-09)
+
+- **Only `[eq]` and `[in]` filters work.** Range operators like `[gte]` are
+  **silently ignored** — a date filter returns the entire 79k-row table
+  instead of erroring. Never rely on a date filter; use `status` + `sort` +
+  a client-side cutoff with early termination.
+- Match objects carry `team1_id` / `team2_id` **as integers only**. Team
+  names require a separate `/teams` lookup.
+- Game scores are `winner_clan_score` / `loser_clan_score` with in-game
+  **clan names**, which do not reliably equal registered team names
+  ("Diamant" vs "Diamant Esports"). Fuzzy-map them and keep the raw strings.
+- **No CT/T splits and no half-time scores exist anywhere in bo3.** Round
+  differential is computable; side splits are not. Do not spec them.
+- `limit` is ignored for small values — read the page size from the
+  envelope's `total.limit`.
+
 ## Source trust order
 
 `bo3.gg` → `HLTV` → `scores24` → `tips.gg` → `egamersworld`
