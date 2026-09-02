@@ -3,7 +3,6 @@ description: Edge Desk project rules
 alwaysApply: true
 ---
 
-# Edge Desk — agent instructions
 
 Read this before touching anything. Full spec: `docs/SPEC.md`.
 
@@ -15,7 +14,7 @@ model, and never places orders.
 
 ## Stack
 
-Python 3.11 · Flask + Jinja2 · PostgreSQL (Neon in dev) · ECharts · APScheduler
+Python 3.11+ · Flask + Jinja2 · PostgreSQL (Neon in dev) · ECharts · APScheduler
 · curl_cffi + selectolax for scraping · pytest.
 
 No ORM. Raw SQL by design — this project needs hand-written analytical queries.
@@ -46,9 +45,12 @@ No JS build step. Server-rendered HTML only.
    No database access, no network, no globals. That is what makes them
    testable.
 
-6. **Fetching goes through the `Fetcher` protocol** in `edgedesk/fetch/base.py`.
-   Sources take a fetcher by injection; never instantiate an HTTP client
-   directly inside a source module.
+6. **NOT YET IMPLEMENTED — do not go looking for it.** The spec calls for a
+   `Fetcher` protocol in `edgedesk/fetch/base.py` that sources receive by
+   injection. That module does not exist, and both `kalshi.py` and `bo3.py`
+   instantiate `httpx.Client` directly. Introduce it when a third source
+   arrives and the caching/retry duplication justifies it — until then,
+   follow the existing pattern rather than half-building the abstraction.
 
 7. **Reserved words.** Postgres reserves `window` and `values` — the columns
    are `stat_window` and `source_values`. Don't "fix" them back.
@@ -68,6 +70,11 @@ No JS build step. Server-rendered HTML only.
   differential is computable; side splits are not. Do not spec them.
 - `limit` is ignored for small values — read the page size from the
   envelope's `total.limit`.
+- **`filter[games.match_id][in]` IS honoured** (probed 2026-09: five ids
+  requested, exactly those five returned). Batch games 50 matches per call.
+  But you MUST paginate — 50 matches averages ~130 games against a page size
+  of 100, and the overflow is dropped silently, which reads as a match that
+  only played two maps rather than as an error.
 
 ## Source trust order
 
@@ -86,24 +93,60 @@ candidates and binds neither.
 
 ## Current phase
 
-**Phase 0** — Kalshi collector only. No scraping, no parsing of third-party
-HTML, no web app. Files in scope:
+**Phase 1.5** — deepening the bo3 dataset before adding a new source.
+Phases 0 and 1 have shipped: the Kalshi collector runs on a schedule, and
+bo3 fixtures resolve against Kalshi events at a ~46/47 bind rate.
+
+In scope right now:
 
 ```
-migrations/001_init.sql
-migrations/run.py
-edgedesk/db.py
-edgedesk/sources/kalshi.py
-scripts/phase0_collect.py
-tests/test_parsers.py
+scripts/phase1_sync.py        map-level ingest via bo3.games()
+scripts/backfill.py           12-month history (new)
+.github/workflows/sync.yml    schedule phase1_sync (new)
 ```
 
-Do not add scrapers, Flask routes, or statistics modules until Phase 0 is
-running continuously and writing snapshots.
+Do **not** add HLTV scrapers, Flask routes, or `stats/` modules yet. If a task
+seems to need one, say so rather than building it — the phase order exists
+because each phase's data makes the next one meaningful.
+
+Phase 1.5 is now largely done: map ingest, alias harvesting, monitoring and
+the historical backfill are all in place.
+
+**Scripts must be exercised, not just their imports.** `phase1_sync.py`
+shipped for weeks with `main()` calling a `sync()` that was never written —
+every run without `--resolve-only` raised NameError, and the whole test suite
+passed because it only covered the pure modules the script imports. Any
+script with real logic gets a test that runs it against fakes.
+
+## Working with two developers
+
+- The repo has two contributors. Before creating a file, check whether it
+  already exists on another branch or in an open PR.
+- **Never edit a migration that has been merged.** Write a new numbered file.
+- Prefer small, reviewable diffs. If a change touches more than about six
+  files, that is a signal to split it, not to explain it in the PR body.
+- When you change a threshold, a weight, or anything deciding *which* rows get
+  used, state what you validated against and the before/after numbers.
+- Conventions for branches, commits, PRs and database branching are in
+  `CONTRIBUTING.md`. Setup and troubleshooting are in `docs/ONBOARDING.md`.
+  The system's mental model is in `docs/ARCHITECTURE.md`.
+
+## High-risk files
+
+Changes here get reviewed line by line, and an agent should say what it is
+about to change before changing it:
+
+- `edgedesk/resolve/fixtures.py` — a wrong link produces a confident dossier
+  about the wrong match. Failing to bind is a nuisance; binding wrongly is the
+  tool lying. Raise the scorer, never lower `ACCEPT`.
+- `migrations/*.sql` — forward-only, applied once, already run against real
+  databases.
+- Anything writing to a `*_snapshots` table — must be an INSERT.
 
 ## Testing
 
-`pytest tests/ -q`. Parser tests run against saved fixtures in
+`python -m pytest tests/ -q` — currently **60 passing**. Parser tests run
+against saved fixtures in
 `tests/fixtures/`. When you add a source, capture a real response as a fixture
 first, then write the parser against it. A parser that returns `None` instead
 of raising on a shape change is the failure mode these tests exist to catch.
@@ -115,3 +158,18 @@ of raising on a shape change is the failure mode these tests exist to catch.
 - All timestamps `timestamptz`, stored UTC. Display timezone is config.
 - Every collector run writes a `collection_runs` row, success or failure.
 - Commit per logical unit of work, not per file.
+
+## Keeping the three rule files in sync
+
+`CLAUDE.md`, `.cursorrules` and `.cursor/rules/edgedesk.mdc` carry the same
+content for Claude Code and Cursor respectively. `CLAUDE.md` is the source of
+truth — edit it, then regenerate the other two:
+
+```bash
+tail -n +2 CLAUDE.md > .cursorrules
+{ printf -- '---\ndescription: Edge Desk project rules\nalwaysApply: true\n---\n\n'; \
+  tail -n +2 CLAUDE.md; } > .cursor/rules/edgedesk.mdc
+```
+
+They had already drifted once. If you edit one directly, the other developer's
+agent is working from different rules than yours.

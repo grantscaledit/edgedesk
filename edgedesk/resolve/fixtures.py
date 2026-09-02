@@ -155,12 +155,14 @@ def score_candidate(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
     `candidate` needs: team_a_name, team_b_name, event_name (optional),
     plus whatever identifiers the caller wants echoed back.
     """
-    # Each team carries its registered name and bo3's acronym; the best
-    # alias per team wins. This is what rescues "Natus Vincere" vs "NAVI".
+    # Each team carries its registered name, bo3's acronym, and any aliases
+    # observed as in-game clan tags. Best alias per team wins. This is what
+    # rescues "Natus Vincere" vs "NAVI" -- and, for the ~half of teams bo3
+    # gives no acronym, the harvested tags are the only second alias there is.
     team_score, swapped = pair_score(
         kalshi_a, kalshi_b,
-        (candidate.get("team_a_name"), candidate.get("team_a_acronym")),
-        (candidate.get("team_b_name"), candidate.get("team_b_acronym")),
+        _aliases(candidate, "a"),
+        _aliases(candidate, "b"),
     )
     event_score = similarity(kalshi_event, candidate.get("event_name"))
     total = round(team_score * (W_TEAM * 2) + event_score * W_EVENT, 4)
@@ -173,15 +175,47 @@ def score_candidate(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
     }
 
 
+def _aliases(candidate: dict, side: str) -> tuple:
+    """Every known name for one side of a candidate.
+
+    `team_{side}_aliases` is optional, so callers that have not joined the
+    alias table keep working unchanged -- the extra names only ever add
+    reach, never remove it.
+    """
+    extra = candidate.get(f"team_{side}_aliases") or ()
+    if isinstance(extra, str):                # a comma-joined SQL string_agg
+        extra = [x for x in extra.split(",") if x.strip()]
+    return (candidate.get(f"team_{side}_name"),
+            candidate.get(f"team_{side}_acronym"), *extra)
+
+
 def rank_candidates(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
-                    candidates: list[dict]) -> list[dict]:
+                    candidates: list[dict], kalshi_start=None) -> list[dict]:
+    """Rank by score, breaking ties on closeness in time.
+
+    Time is a TIEBREAK, never part of the score. Folding it into the score
+    would move the accept threshold around depending on how punctual an
+    event was, and 0.85 has been tuned against real pairs. But once a wide
+    window can return hundreds of candidates, two equally-scoring matches
+    need a principled ordering, and the one starting nearest the Kalshi
+    close time is the better bet.
+    """
     scored = [score_candidate(kalshi_a, kalshi_b, kalshi_event, c)
               for c in candidates]
-    return sorted(scored, key=lambda c: c["score"], reverse=True)
+    for c in scored:
+        start = c.get("scheduled_at")
+        c["minutes_apart"] = (
+            abs((start - kalshi_start).total_seconds()) / 60
+            if (kalshi_start is not None and start is not None) else None)
+    return sorted(
+        scored,
+        key=lambda c: (-c["score"],
+                       c["minutes_apart"] if c["minutes_apart"] is not None
+                       else float("inf")))
 
 
 def resolve(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
-            candidates: list[dict]) -> dict:
+            candidates: list[dict], kalshi_start=None) -> dict:
     """Return a decision dict.
 
     verdict is one of: 'accept' | 'fuzzy' | 'queue'
@@ -190,7 +224,8 @@ def resolve(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
         return {"verdict": "queue", "reason": "no candidates in window",
                 "best": None, "ranked": []}
 
-    ranked = rank_candidates(kalshi_a, kalshi_b, kalshi_event, candidates)
+    ranked = rank_candidates(kalshi_a, kalshi_b, kalshi_event, candidates,
+                             kalshi_start)
     best = ranked[0]
 
     if best["score"] >= ACCEPT:
@@ -207,8 +242,8 @@ def resolve(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
 
     # Stage 3: both individual names must be strong, even if the combined
     # score missed. Guards against one great match carrying one bad one.
-    alias_a = (best.get("team_a_name"), best.get("team_a_acronym"))
-    alias_b = (best.get("team_b_name"), best.get("team_b_acronym"))
+    alias_a = _aliases(best, "a")
+    alias_b = _aliases(best, "b")
     sim_direct = min(best_similarity(kalshi_a, *alias_a),
                      best_similarity(kalshi_b, *alias_b))
     sim_swapped = min(best_similarity(kalshi_a, *alias_b),
@@ -219,6 +254,23 @@ def resolve(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
 
     return {"verdict": "queue", "reason": f"best score {best['score']:.2f}",
             "best": best, "ranked": ranked[:5]}
+
+
+def window_slice(candidates: list[dict], starts: list, at, span) -> list[dict]:
+    """Candidates whose start is within +/-span of `at`.
+
+    `candidates` must be sorted by start time and `starts` must be the
+    parallel list of those times -- the caller builds both once per run.
+    Bisect rather than a scan because this is called once per Kalshi event,
+    and the historical backlog is ~6,000 events against ~40,000 candidates:
+    a linear scan there is 240 million comparisons.
+    """
+    import bisect
+    if at is None or not candidates:
+        return []
+    lo = bisect.bisect_left(starts, at - span)
+    hi = bisect.bisect_right(starts, at + span)
+    return candidates[lo:hi]
 
 
 def in_window(kalshi_start, candidate_start, wide: bool = False) -> bool:

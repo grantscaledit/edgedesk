@@ -69,8 +69,12 @@ FROM kalshi_markets;
 """
 
 MAPS = """
-SELECT count(*) FILTER (WHERE winner_team_id IS NULL) AS unbound,
-       count(*)                                       AS total
+SELECT count(*) FILTER (WHERE winner_team_id IS NULL
+                          AND winner_clan_name IS NOT NULL
+                          AND winner_clan_name <> ''
+                          AND NOT is_default)            AS fixable,
+       count(*) FILTER (WHERE winner_team_id IS NULL)    AS unbound,
+       count(*)                                          AS total
 FROM match_maps;
 """
 
@@ -120,7 +124,11 @@ def main():
               health.unresolved_events(ev["unbound"], ev["total"]))
         mp = one(MAPS)
         check("map winners",
-              health.unresolved_maps(mp["unbound"], mp["total"]))
+              health.unresolved_maps(mp["fixable"], mp["total"]))
+        gap = mp["unbound"] - mp["fixable"]
+        lines.append(f"[{ICON['ok']}] {'map source gaps':22} "
+                     f"{gap} rows bo3 recorded no clan tag for "
+                     "(not recoverable)")
         check("storage", health.storage(one(STORAGE)["bytes"]))
 
         allev = one(EVENTS_ALL)

@@ -36,8 +36,16 @@ def test_storage_thresholds():
 def test_unresolved_shares():
     assert unresolved_events(1, 47)[0] == OK
     assert unresolved_events(20, 47)[0] == WARN
-    assert unresolved_maps(2, 100)[0] == OK
+    assert unresolved_maps(1, 100)[0] == OK
     assert unresolved_maps(30, 100)[0] == WARN
+
+
+def test_map_alert_ignores_source_gaps():
+    """Measured on real data, 151/151 unresolved rows had no clan tag from
+    bo3 at all — a source gap, not a scoring failure. Alerting on the total
+    would fire for something we cannot fix while staying silent if our own
+    resolver regressed."""
+    assert unresolved_maps(0, 1318)[0] == OK
 
 
 def test_empty_totals_do_not_divide_by_zero():

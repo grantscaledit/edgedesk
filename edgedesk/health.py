@@ -21,7 +21,12 @@ STORAGE_FAIL = 0.90
 EXPECTED_RUNS_6H = 4        # be forgiving; a 15-min collector should give ~24
 
 UNRESOLVED_WARN = 0.15      # share of ACTIVE Kalshi events with no bo3 match
-MAP_UNRESOLVED_WARN = 0.15  # share of map rows with no winner bound
+# Share of map rows where OUR resolver failed on a tag bo3 actually gave us.
+# Deliberately NOT the share of unresolved rows: measured against real data,
+# every unresolved row was a map bo3 recorded no clan tag for at all. Alerting
+# on the total would fire for a bo3 data gap we cannot act on, and would stay
+# silent if our own scorer started failing -- exactly backwards.
+MAP_UNRESOLVED_WARN = 0.02
 
 
 def worst(*statuses: str) -> str:
@@ -77,9 +82,14 @@ def unresolved_events(unbound: int, total: int) -> tuple[str, str]:
                   "active Kalshi events unbound")
 
 
-def unresolved_maps(unbound: int, total: int) -> tuple[str, str]:
-    return _share(unbound, total, MAP_UNRESOLVED_WARN,
-                  "map rows with no winner")
+def unresolved_maps(fixable: int, total: int) -> tuple[str, str]:
+    """`fixable` = rows with a real clan tag that we still failed to bind.
+
+    Rows where bo3 recorded no tag are a source gap, not a defect, and are
+    reported separately so they cannot mask a regression in our own scoring.
+    """
+    return _share(fixable, total, MAP_UNRESOLVED_WARN,
+                  "map rows with a tag we failed to bind")
 
 
 def failed_runs(rows: list[dict]) -> tuple[str, str]:
