@@ -184,6 +184,31 @@ class Bo3:
         )
         return data.get("results") or []
 
+    def games_batch(self, match_ids: list[int], chunk: int = 50,
+                    progress: bool = False):
+        """Games for many matches at once. Verified working 2026-09.
+
+        `filter[games.match_id][in]` IS honoured — probed against the live
+        API, which returned exactly the five requested match_ids and nothing
+        else. That makes backfill ~50x cheaper than one request per match.
+
+        MUST PAGINATE. A chunk of 50 matches averages ~130 games, and the
+        page size is 100, so a single _get would silently drop the tail --
+        the worst kind of bug here, because the result looks like a match
+        that only played two maps rather than like an error. Going through
+        _pages is what makes the chunk size independent of the page size.
+        """
+        for ids in _chunks(sorted(set(match_ids)), chunk):
+            if progress:
+                print(f"      games for {len(ids)} matches "
+                      f"({ids[0]}..{ids[-1]})", flush=True)
+            yield from self._pages(
+                "/games",
+                page_size=100,
+                **{"filter[games.match_id][in]": ",".join(str(i) for i in ids)},
+            )
+            time.sleep(self.delay)
+
     def tournament(self, tournament_id: int) -> dict | None:
         data = self._get(
             "/tournaments", **{"filter[tournaments.id][eq]": tournament_id}
