@@ -88,24 +88,40 @@ candidates and binds neither.
 
 ## Current phase
 
-**Phase 1.5** — deepening the bo3 dataset before adding a new source.
-Phases 0 and 1 have shipped: the Kalshi collector runs on a schedule, and
-bo3 fixtures resolve against Kalshi events at a ~46/47 bind rate.
+**Phase 3 (stats)** — Tier-1 statistics over the backfilled bo3 data.
+Phases 0, 1 and 1.5 have shipped: the collector runs on a schedule, 16k
+matches with per-map results are loaded, and aliases are harvested.
 
 In scope right now:
 
 ```
-scripts/phase1_sync.py        map-level ingest via bo3.games()
-scripts/backfill.py           12-month history (new)
-.github/workflows/sync.yml    schedule phase1_sync (new)
+edgedesk/stats/core.py   Stat, n_eff, shrink, decay  (done)
+edgedesk/stats/team.py   win/forfeit/form/fatigue    (done)
+edgedesk/stats/maps.py   round pct, diff, map pool   (done)
+edgedesk/stats/h2h.py    head-to-head                (done)
+edgedesk/queries.py      row-fetching for the above  (done)
+scripts/dossier.py       render a full dossier       (done)
 ```
 
-Do **not** add HLTV scrapers, Flask routes, or `stats/` modules yet. If a task
-seems to need one, say so rather than building it — the phase order exists
-because each phase's data makes the next one meaningful.
+Do **not** add HLTV scrapers or Flask routes yet. Anything needing player or
+roster data is Phase 2 and returns `Stat.unavailable` for now.
+
+`queries.py` does SQL and computes nothing; `stats/` computes and does no
+SQL. Keeping that split sharp is what lets every statistic be tested without
+a database.
+
+**Every statistic returns a `Stat`**, never a bare float. A `Stat` cannot be
+built without its sample size, which is how the display contract (rule 4) is
+enforced structurally instead of by remembering. Missing data is
+`Stat.unavailable(reason)` — never 0.0, never omitted.
 
 Phase 1.5 is now largely done: map ingest, alias harvesting, monitoring and
 the historical backfill are all in place.
+
+**Condition fallbacks on the outcome, not on scarcity.** The wide-window
+retry was gated on the narrow window being empty; after backfilling 16k
+matches it never was, the fallback became dead code, and resolved pairs
+regressed to queued. Nothing errored.
 
 **Scripts must be exercised, not just their imports.** `phase1_sync.py`
 shipped for weeks with `main()` calling a `sync()` that was never written —

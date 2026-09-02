@@ -1,196 +1,220 @@
 #!/usr/bin/env python3
-"""Phase 1 CLI dossier.
+"""Match dossier — the thing this whole project exists to produce.
 
-    python scripts/dossier.py                       # today's slate
-    python scripts/dossier.py --gate                # gate-passing only
-    python scripts/dossier.py KXCS2GAME-26SEP...    # one match
+    python scripts/dossier.py                     # the slate
+    python scripts/dossier.py --match 12345       # one match
+    python scripts/dossier.py --event KXCS2GAME-...
+    python scripts/dossier.py --days 180          # narrow the sample
 
-Phase 1 shows what the spine knows: teams, event, format, price, gate status,
-recent form, head-to-head, forfeit history. Team and player statistics arrive
-in Phase 2 with the HLTV layer.
+It assembles evidence. It does NOT tell you what to bet, produce a fair
+value, or rank anything by edge. Every figure carries its sample size,
+effective sample size and staleness, because the difference between a 100%
+win rate over two matches and over forty is the entire question and a bare
+percentage hides it.
 
-Display contract: every rate carries its sample size. A rate without an n is
-a claim, not information.
+Where data is missing it says so. A partial dossier is correct behaviour.
 """
 from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from edgedesk import db                                      # noqa: E402
+from edgedesk import db, queries                                 # noqa: E402
+from edgedesk.stats import h2h, maps, team as tstats             # noqa: E402
 
-SLATE = """
-SELECT s.event_ticker,
-       string_agg(s.team_name || ' ' || s.yes_ask || 'c', '  |  '
-                  ORDER BY s.yes_ask DESC)      AS sides,
-       MIN(s.scheduled_at)                      AS scheduled_at,
-       MIN(s.spread_cents)                      AS spread,
-       MIN(s.overround)                         AS overround,
-       MAX(s.volume)                            AS volume,
-       bool_or(s.gate_pass)                     AS gate_pass,
-       MAX(km.match_id)                         AS match_id
-FROM v_slate s
-JOIN kalshi_markets km ON km.ticker = s.ticker
-WHERE s.series_ticker = 'KXCS2GAME'
-  AND s.scheduled_at BETWEEN now() - interval '2 hours' AND now() + interval '48 hours'
-GROUP BY s.event_ticker
-ORDER BY bool_or(s.gate_pass) DESC, MIN(s.scheduled_at);
-"""
-
-MATCH = """
-SELECT m.id, m.scheduled_at, m.format_bo, m.status, m.bo3_status, m.tier,
-       m.decided_by_default, m.bo3_slug,
-       ta.id AS a_id, ta.canonical_name AS a_name, ta.bo3_rank AS a_rank,
-       tb.id AS b_id, tb.canonical_name AS b_name, tb.bo3_rank AS b_rank
-FROM matches m
-JOIN teams ta ON ta.id = m.team_a_id
-JOIN teams tb ON tb.id = m.team_b_id
-WHERE m.id = %s;
-"""
-
-FORM = """
-SELECT m.scheduled_at, m.status, m.decided_by_default, m.format_bo,
-       CASE WHEN m.team_a_id = %(team)s THEN tb.canonical_name
-            ELSE ta.canonical_name END        AS opponent,
-       CASE WHEN m.winner_team_id = %(team)s THEN 'W'
-            WHEN m.winner_team_id IS NULL     THEN '-'
-            ELSE 'L' END                      AS result
-FROM matches m
-JOIN teams ta ON ta.id = m.team_a_id
-JOIN teams tb ON tb.id = m.team_b_id
-WHERE (m.team_a_id = %(team)s OR m.team_b_id = %(team)s)
-  AND m.scheduled_at < now() AND m.status = 'finished'
-ORDER BY m.scheduled_at DESC LIMIT 10;
-"""
-
-RISK = """
-SELECT
-  COUNT(*)                                                  AS played,
-  COUNT(*) FILTER (WHERE decided_by_default)                AS forfeits,
-  COUNT(*) FILTER (WHERE scheduled_at > now() - interval '72 hours') AS last_72h,
-  COUNT(*) FILTER (WHERE scheduled_at > now() - interval '7 days')   AS last_7d
-FROM matches
-WHERE (team_a_id = %(team)s OR team_b_id = %(team)s)
-  AND scheduled_at < now() AND status = 'finished';
-"""
-
-H2H = """
-SELECT m.scheduled_at, m.format_bo, m.decided_by_default,
-       CASE WHEN m.winner_team_id = %(a)s THEN 'A'
-            WHEN m.winner_team_id = %(b)s THEN 'B' ELSE '-' END AS winner
-FROM matches m
-WHERE m.status='finished'
-  AND ((m.team_a_id=%(a)s AND m.team_b_id=%(b)s)
-    OR (m.team_a_id=%(b)s AND m.team_b_id=%(a)s))
-ORDER BY m.scheduled_at DESC LIMIT 10;
-"""
+W = 78
 
 
-def rule(char="─", n=74):
-    print(char * n)
+def rule(char="-"):
+    print(char * W)
 
 
-def show_slate(conn, gate_only: bool):
-    rows = conn.execute(SLATE).fetchall()
-    if gate_only:
-        rows = [r for r in rows if r["gate_pass"]]
-    rule("━")
-    print(f"  CS2 SLATE — next 48h        {len(rows)} events"
-          f"{'  (gate-passing only)' if gate_only else ''}")
-    rule("━")
-    print(f"  {'GATE':5} {'START (UTC)':17} {'SPR':>4} {'OVR':>4} {'VOL':>9}  MATCH")
+def head(text):
+    print()
+    rule("=")
+    print(f"  {text}")
+    rule("=")
+
+
+def section(text):
+    print(f"\n  {text}")
     rule()
+
+
+def row(label, stat, pct=True, places=None):
+    """Print a Stat with its provenance. Never prints a bare number."""
+    print(f"    {label:<22} {stat.render(pct=pct, places=places)}")
+
+
+def show_slate(conn):
+    rows = queries.slate(conn)
+    head(f"SLATE — {len(rows)} events")
+    if not rows:
+        print("\n  Nothing listed. Has the collector run?"
+              "  python scripts/healthcheck.py")
+        return
+    print(f"\n  {'':2}{'id':>7}  {'start':12}  {'teams':34} {'spr':>4} "
+          f"{'ovr':>5} {'depth':>6}  ticker")
+    rule("-")
     for r in rows:
-        flag = "PASS " if r["gate_pass"] else "  -  "
-        link = "linked" if r["match_id"] else "UNLINKED"
+        gate = "*" if r["gate_pass"] else " "
         when = r["scheduled_at"].strftime("%m-%d %H:%M") if r["scheduled_at"] else "?"
-        vol = f"{float(r['volume'] or 0):,.0f}"
-        print(f"  {flag} {when:17} {r['spread']:>4} {r['overround'] or 0:>4} {vol:>9}  {link}")
-        print(f"        {r['sides']}")
-        if r["match_id"]:
-            print(f"        dossier: python scripts/dossier.py --match {r['match_id']}")
-        print()
+        teams = (r["teams"] or "?")[:34]
+        spread = r["best_spread"] if r["best_spread"] is not None else "-"
+        ovr = r["overround"] if r["overround"] is not None else "-"
+        depth = r["top_depth"] if r["top_depth"] is not None else "-"
+        mid = r["match_id"] if r["match_id"] else "unbound"
+        print(f"  {gate} {str(mid):>7}  {when:12}  {teams:34} {spread:>4} "
+              f"{ovr:>5} {depth:>6}  {r['event_ticker']}")
+    rule("-")
+    print("  * = passes the liquidity gate (2 sides, spread<=5c, "
+          "overround<=106, depth>=25)")
+    print("  Gate-failing events still get a full dossier — the gate governs "
+          "price commentary only.")
+    print("  'unbound' = no bo3 match linked, so no dossier can be built.")
+    print("\n  Copy an id or a ticker from above:")
+    print("    python scripts/dossier.py --match 501")
+    print("    python scripts/dossier.py --match KXCS2GAME-26SEP031000HAVULAV")
 
 
-def show_match(conn, match_id: int):
-    m = conn.execute(MATCH, (match_id,)).fetchone()
-    if not m:
-        print(f"no match {match_id}")
+def team_block(name, rows, map_rows, team_id, pool_ff, days):
+    section(name)
+    played = [r for r in rows if r.get("status") == "finished"]
+    print(f"    sample: {len(played)} completed matches over {days}d, "
+          f"{len(map_rows)} map rows")
+
+    row("win rate", tstats.win_rate(rows, team_id))
+    row("form (last 5)", tstats.form(rows, team_id, 5))
+    print(f"    {'form string':<22} {tstats.form_string(rows, team_id, 8)} "
+          "(most recent first, '-' = forfeit)")
+    row("forfeit rate", tstats.forfeit_rate(rows, team_id))
+    row("no-show risk", tstats.no_show_risk(rows, team_id))
+    ff = tstats.no_show_risk(rows, team_id)
+    if ff.note:
+        print(f"    {'':22} note: {ff.note}")
+    row("fatigue", tstats.fatigue(rows), pct=False, places=0)
+
+    row("map win rate", maps.map_win_rate(map_rows, team_id))
+    row("round win %", maps.round_win_pct(map_rows, team_id))
+    row("avg round diff", maps.avg_round_diff(map_rows, team_id), pct=False)
+
+    pool = maps.map_pool(map_rows, team_id, min_maps=2)
+    if pool:
+        print(f"\n    {'map':<14} {'played':>6}  {'record':<10} "
+              f"{'round%':<10} {'diff':>6}")
+        for m in pool[:8]:
+            wr = m["win_rate"]
+            rwp = m["round_win_pct"]
+            rd = m["round_diff"]
+            print(f"    {m['map']:<14} {m['played']:>6}  {wr.raw:<10} "
+                  f"{(f'{rwp.value*100:.0f}%' if rwp.value else '-'):<10} "
+                  f"{(f'{rd.value:+.1f}' if rd.value is not None else '-'):>6}")
+    else:
+        print("\n    map pool: not enough resolved maps to show "
+              "(need 2+ on a map)")
+
+
+def show_match(conn, match_id, days):
+    data = queries.dossier_rows(conn, match_id, days)
+    if not data:
+        print(f"No match with id {match_id}.")
         return
 
-    rule("━")
-    print(f"  {m['a_name']}  vs  {m['b_name']}")
-    rule("━")
-    fmt = f"Bo{m['format_bo']}" if m["format_bo"] else "format ?"
+    m, ta, tb = data["match"], data["team_a"], data["team_b"]
+    a_id, b_id = m["team_a_id"], m["team_b_id"]
+    head(f"{ta['canonical_name']}  vs  {tb['canonical_name']}")
     when = m["scheduled_at"].strftime("%Y-%m-%d %H:%M UTC") if m["scheduled_at"] else "?"
-    print(f"  {when}   {fmt}   tier {m['tier'] or '?'}   status {m['bo3_status'] or m['status']}")
-    if m["decided_by_default"]:
-        print("  ** DECIDED BY DEFAULT (forfeit) **")
-    print(f"  bo3: {m['bo3_slug'] or '-'}")
+    print(f"  {when}   Bo{m['format_bo'] or '?'}   tier {m['tier'] or '?'}")
+    if m["bo3_slug"]:
+        print(f"  bo3.gg/matches/{m['bo3_slug']}")
 
-    for side, tid, name, rank in (("A", m["a_id"], m["a_name"], m["a_rank"]),
-                                  ("B", m["b_id"], m["b_name"], m["b_rank"])):
-        print()
-        rule()
-        print(f"  [{side}] {name}    bo3 rank {rank if rank is not None else 'unranked'}")
-        rule()
+    team_block(f"{ta['canonical_name']}", data["a_matches"], data["a_maps"],
+               a_id, data["pool_forfeit"], days)
+    team_block(f"{tb['canonical_name']}", data["b_matches"], data["b_maps"],
+               b_id, data["pool_forfeit"], days)
 
-        risk = conn.execute(RISK, {"team": tid}).fetchone()
-        n = risk["played"] or 0
-        ff = risk["forfeits"] or 0
-        ff_rate = f"{ff / n:.1%}" if n else "n/a"
-        print(f"  forfeits      {ff}/{n} ({ff_rate})     "
-              f"[n={n}] {'** ELEVATED **' if n and ff / n > 0.05 else ''}")
-        print(f"  fatigue       {risk['last_72h']} in 72h, {risk['last_7d']} in 7d")
+    section("HEAD TO HEAD")
+    rec = h2h.record(data["all_matches"], a_id, b_id)
+    print(f"    {ta['canonical_name']} vs {tb['canonical_name']}: "
+          f"{rec.render()}")
+    if rec.note:
+        print(f"    note: {rec.note}")
 
-        form = conn.execute(FORM, {"team": tid}).fetchall()
-        if form:
-            seq = "".join(f["result"] for f in form)
-            wins = seq.count("W")
-            print(f"  form          {seq}  ({wins}/{len(form)}) [n={len(form)}]")
-            for f in form[:5]:
-                d = f["scheduled_at"].strftime("%m-%d")
-                dflt = " DEFAULT" if f["decided_by_default"] else ""
-                print(f"                  {d}  {f['result']}  vs {f['opponent']}"
-                      f"  Bo{f['format_bo'] or '?'}{dflt}")
-        else:
-            print("  form          no finished matches in the local window [n=0]")
+    mr = h2h.map_record(data["all_maps"], a_id, b_id)
+    if mr:
+        print(f"\n    {'map':<14} {'played':>6}  {'record':<8} {'diff':>6}")
+        for e in mr:
+            d = f"{e['avg_round_diff']:+.1f}" if e["avg_round_diff"] is not None else "-"
+            print(f"    {e['map']:<14} {e['played']:>6}  {e['record']:<8} {d:>6}")
 
-    print()
-    rule()
-    h2h = conn.execute(H2H, {"a": m["a_id"], "b": m["b_id"]}).fetchall()
-    if h2h:
-        a_w = sum(1 for h in h2h if h["winner"] == "A")
-        b_w = sum(1 for h in h2h if h["winner"] == "B")
-        print(f"  HEAD TO HEAD  {m['a_name']} {a_w} - {b_w} {m['b_name']}  [n={len(h2h)}]")
-        for h in h2h:
-            print(f"                  {h['scheduled_at'].strftime('%Y-%m-%d')}  "
-                  f"{'A' if h['winner']=='A' else 'B' if h['winner']=='B' else '?'} won"
-                  f"{'  DEFAULT' if h['decided_by_default'] else ''}")
-    else:
-        print("  HEAD TO HEAD  no prior meetings [n=0]")
+    co = h2h.common_opponents(data["all_matches"], a_id, b_id)
+    print(f"\n    common opponents: {co['count']}")
+    if co["count"]:
+        print(f"    note: {co['note']}")
+
+    section("DATA GAPS")
+    print("    player ratings / talent gap   not collected (Phase 2, HLTV)")
+    print("    roster continuity             not collected (Phase 2)")
+    print("    CT/T side split               not available from bo3 at all")
+    print("    veto data                     rarely published; irrelevant in Bo1")
 
     print()
-    rule()
-    print("  Phase 2 adds: rosters, player ratings, talent gap, map pool,")
-    print("  HLTV rankings, and the forfeit/lineup watcher.")
-    rule()
+    rule("=")
+    print("  Evidence only. No fair value, no recommendation.")
+    rule("=")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--match", type=int, help="local match id")
-    ap.add_argument("--gate", action="store_true", help="gate-passing only")
+    # str, not int: the slate shows both a numeric match id and a Kalshi
+    # event ticker, and requiring the user to know which flag takes which
+    # is a trap the tool can simply absorb.
+    ap.add_argument("--match", type=str,
+                    help="bo3 match id, or a Kalshi event ticker")
+    ap.add_argument("--event", type=str, help="Kalshi event ticker")
+    ap.add_argument("--days", type=int, default=365)
     a = ap.parse_args()
-    with db.connect() as conn:
-        if a.match:
-            show_match(conn, a.match)
+
+    # A ticker passed to --match is routed to the event path rather than
+    # rejected. Same for a bare number passed to --event.
+    target_event, target_match = a.event, None
+    if a.match:
+        if a.match.strip().isdigit():
+            target_match = int(a.match)
         else:
-            show_slate(conn, a.gate)
+            target_event = a.match.strip()
+    if target_event and target_event.strip().isdigit():
+        target_match, target_event = int(target_event.strip()), None
+
+    with db.connect() as conn:
+        if target_event:
+            sides = queries.event_sides(conn, target_event)
+            if not sides:
+                print(f"No open markets for event {target_event}.")
+                print("  The event may have closed. Run the slate to see "
+                      "what is live:  python scripts/dossier.py")
+                return
+            head(f"EVENT {target_event}")
+            for s in sides:
+                print(f"    {s['team_name']:<28} bid {s['yes_bid']:>3}  "
+                      f"ask {s['yes_ask']:>3}  spread {s['spread_cents']:>3}  "
+                      f"depth {s['top_depth']}")
+            mid = next((s["team_id"] for s in sides if s["team_id"]), None)
+            match_row = conn.execute(
+                "SELECT match_id FROM kalshi_markets WHERE event_ticker=%s "
+                "AND match_id IS NOT NULL LIMIT 1", (target_event,)).fetchone()
+            if match_row:
+                show_match(conn, match_row["match_id"], a.days)
+            else:
+                print("\n  This event is not bound to a bo3 match, so no "
+                      "dossier can be built.\n  Check resolution_queue.")
+        elif target_match:
+            show_match(conn, target_match, a.days)
+        else:
+            show_slate(conn)
 
 
 if __name__ == "__main__":

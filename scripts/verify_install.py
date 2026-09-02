@@ -29,6 +29,7 @@ PACKAGES = [
     "edgedesk/__init__.py",
     "edgedesk/resolve/__init__.py",
     "edgedesk/sources/__init__.py",
+    "edgedesk/stats/__init__.py",
 ]
 
 MODULES = [
@@ -39,6 +40,11 @@ MODULES = [
     "edgedesk.sources.bo3",
     "edgedesk.resolve.fixtures",
     "edgedesk.resolve.clans",
+    "edgedesk.stats.core",
+    "edgedesk.stats.team",
+    "edgedesk.stats.maps",
+    "edgedesk.stats.h2h",
+    "edgedesk.queries",
 ]
 
 SCRIPTS = [
@@ -69,6 +75,11 @@ TESTS = [
     "tests/test_health.py",
     "tests/test_notify.py",
     "tests/test_phase1_sync.py",
+    "tests/test_stats_core.py",
+    "tests/test_stats_team.py",
+    "tests/test_stats_maps.py",
+    "tests/test_stats_h2h.py",
+    "tests/test_dossier.py",
     "tests/fixtures/kalshi_markets.json",
 ]
 
@@ -80,6 +91,12 @@ SYMBOLS = [
     ("edgedesk/resolve/clans.py", ["def assign(", "def rounds_for("]),
     ("edgedesk/resolve/fixtures.py", ["def resolve(", "def window_slice(",
                                       "def similarity("]),
+    ("edgedesk/stats/core.py", ["class Stat", "def n_eff(", "def shrink("]),
+    ("edgedesk/stats/team.py", ["def win_rate(", "def forfeit_rate("]),
+    ("edgedesk/stats/maps.py", ["def round_win_pct(", "def map_pool("]),
+    ("edgedesk/stats/h2h.py", ["def record(", "def common_opponents("]),
+    ("edgedesk/queries.py", ["def dossier_rows(", "def slate("]),
+    ("scripts/dossier.py", ["def show_match(", "def show_slate("]),
 ]
 
 problems: list[str] = []
