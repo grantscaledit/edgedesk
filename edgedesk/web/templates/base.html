@@ -54,6 +54,32 @@
            font-weight:700; cursor:pointer; }
   .foot { color:var(--mute); border-top:1px solid var(--line);
           margin-top:24px; padding-top:12px; font-size:12px; }
+
+  /* ---- charts ------------------------------------------------------ */
+  figure.chart { margin:0 0 6px; }
+  figcaption { color:var(--mute); font-size:12px; margin-bottom:8px; }
+  .legend { display:flex; gap:16px; margin-bottom:10px; font-size:12px;
+            color:var(--mute); }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px;
+              margin-right:6px; vertical-align:middle; }
+  .c-label { fill:var(--ink); font-size:11px; }
+  .c-value { fill:var(--mute); font-size:11px; }
+  .c-n { fill:var(--mute); font-size:10px; }
+  .bar rect { transition:opacity .12s; }
+  .bar:hover rect { opacity:.75; }
+  .strip { display:grid; grid-template-columns:120px 1fr 120px;
+           align-items:center; gap:12px; margin-bottom:6px; }
+  .strip .c-label, .strip .c-n { font-size:12px; }
+  .strip .c-label { color:var(--ink); }
+  .strip .c-n { color:var(--mute); text-align:right; }
+  table.heat td.cell { text-align:right; font-variant-numeric:tabular-nums; }
+  table.heat td.cell .c-n { color:var(--mute); font-size:10px;
+                            margin-left:8px; }
+  table.heat td.empty { color:var(--mute); }
+  .key { margin-right:14px; }
+  .key i { display:inline-block; width:10px; height:10px; border-radius:50%;
+           margin-right:6px; vertical-align:middle; }
+  .key i.hollow { background:transparent; border:2px solid #8b93a7; }
 </style>
 <header>
   <span class="brand">EDGE DESK</span>

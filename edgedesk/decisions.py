@@ -47,7 +47,9 @@ def market_prob_for(conn, event_ticker, team_a_id):
     if not q:
         return None, None
     bid, ask = q.get("yes_bid"), q.get("yes_ask")
-    if bid is None or ask is None:
+    empty_book = bid is not None and ask is not None and bid <= 0 and ask >= 100
+    if bid is None or ask is None or empty_book:
+        # A 0/100 quote is the absence of a price, not a 50c opinion.
         if q.get("last_price") is None:
             return None, None
         prob = q["last_price"] / 100.0

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
+{% import "_charts.html" as viz %}
 {% block title %}Decision log — Edge Desk{% endblock %}
 {% block body %}
 <h1>Decision log</h1>
@@ -22,6 +23,7 @@
 {% if scored %}
 <h2>calibration</h2>
 <div class="panel">
+{{ viz.calibration(calchart) }}
 <table>
   <tr><th>bucket</th><th class="num">n</th><th class="num">you said</th>
       <th class="num">actual</th><th class="num">gap</th></tr>

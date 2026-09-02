@@ -313,3 +313,37 @@ def test_escalation_does_not_lower_the_bar(mod):
     })
     bound, queued = mod.resolve_all(conn, dry_run=True)
     assert (bound, queued) == (0, 1)
+
+
+def test_history_flag_selects_the_settled_view(mod):
+    """Regression: v_unresolved filters status IN ('active','open'), so
+    every event that had ever settled was permanently unbindable — and
+    settled events, carrying both a result and a closing price, ARE the
+    backtest dataset. vs_market.py had six events to work with."""
+    seen = []
+
+    class Recording(FakeConn):
+        def execute(self, sql, params=None):
+            if "v_unresolved" in sql:
+                seen.append(sql)
+            return super().execute(sql, params)
+
+    conn = Recording({"FROM v_unresolved": [], "FROM matches m": []})
+    mod.resolve_all(conn, dry_run=True, history=True)
+    assert any("v_unresolved_history" in s for s in seen), seen
+
+
+def test_default_resolution_uses_the_live_view_only(mod):
+    """A routine sync must keep looking at a handful of live events rather
+    than re-scanning six thousand historical ones every four hours."""
+    seen = []
+
+    class Recording(FakeConn):
+        def execute(self, sql, params=None):
+            if "v_unresolved" in sql:
+                seen.append(sql)
+            return super().execute(sql, params)
+
+    conn = Recording({"FROM v_unresolved": [], "FROM matches m": []})
+    mod.resolve_all(conn, dry_run=True)
+    assert seen and not any("v_unresolved_history" in s for s in seen)

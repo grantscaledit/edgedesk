@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 
+from . import charts
 from .. import db, decisions, queries
 from ..stats import h2h, maps, roster as rstats, scoring
 from ..stats import team as tstats
@@ -35,6 +36,9 @@ def create_app() -> Flask:
                 return render_template("missing.html", match_id=match_id), 404
             ctx = _dossier_context(data, days)
             ctx["recent"] = _decisions_for(conn, match_id)
+            ctx["price"] = charts.sparkline(
+                queries.price_history(conn, match_id,
+                                      data["match"]["team_a_id"]))
         return render_template("match.html", **ctx)
 
     @app.post("/match/<int:match_id>/decision")
@@ -73,6 +77,8 @@ def create_app() -> Flask:
             market=scoring.mean_brier(scored, "market_brier"),
             edge=scoring.skill_vs_market(scored),
             calibration=scoring.calibration(scored, bins=5),
+            calchart=charts.calibration_rows(
+                scoring.calibration(scored, bins=5)),
             tags=scoring.tag_performance(scored),
             fmp=[r for r in rows if r["result"] == "fmp"])
 
@@ -99,8 +105,10 @@ def create_app() -> Flask:
                 "SELECT pg_database_size(current_database()) AS b").fetchone()
             size = row["b"] if row else None
             runs = [dict(r) for r in conn.execute(_RUNS_SQL).fetchall()]
+            hours = charts.hour_bars(queries.hourly_writes(conn))
         checks = [("collection", collection_gap(gap)), ("storage", storage(size))]
         return render_template("health.html", checks=checks, runs=runs,
+                               hours=hours,
                                overall=worst(*[c[1][0] for c in checks]))
 
     return app
@@ -128,19 +136,51 @@ def _dossier_context(data, days):
             "played": len([r for r in rows if r.get("status") == "finished"]),
         }
 
+    ctx_a = side(data["a_matches"], data["a_maps"], a_id,
+                 data.get("a_roster"), data.get("a_roster_changes"))
+    ctx_b = side(data["b_matches"], data["b_maps"], b_id,
+                 data.get("b_roster"), data.get("b_roster_changes"))
+
     return {
         "m": data["match"],
         "a": data["team_a"], "b": data["team_b"],
-        "sa": side(data["a_matches"], data["a_maps"], a_id,
-                   data.get("a_roster"), data.get("a_roster_changes")),
-        "sb": side(data["b_matches"], data["b_maps"], b_id,
-                   data.get("b_roster"), data.get("b_roster_changes")),
+        "sa": ctx_a, "sb": ctx_b,
+        "advantage": charts.diverging_bars(
+            charts.map_advantage(ctx_a["pool"], ctx_b["pool"],
+                                 data["team_a"]["canonical_name"],
+                                 data["team_b"]["canonical_name"])),
+        "heat": charts.heat_cells(ctx_a["pool"], ctx_b["pool"],
+                                  data["team_a"]["canonical_name"],
+                                  data["team_b"]["canonical_name"]),
+        "strip_a": charts.strip(_recent_diffs(data["a_maps"], a_id)),
+        "strip_b": charts.strip(_recent_diffs(data["b_maps"], b_id)),
         "h2h": h2h.record(data["all_matches"], a_id, b_id),
         "h2h_maps": h2h.map_record(data["all_maps"], a_id, b_id),
         "common": h2h.common_opponents(data["all_matches"], a_id, b_id),
         "tags": decisions.TAGS,
         "days": days,
     }
+
+
+def _recent_diffs(map_rows, team_id, limit: int = 24):
+    """Signed round differential for the most recent maps, oldest first.
+
+    Unresolved maps contribute nothing — a mis-assigned 13-7 would show as
+    a confident dot on the wrong side of zero.
+    """
+    rows = [r for r in map_rows
+            if r.get("winner_team_id") is not None and not r.get("is_default")]
+    rows = sorted(rows, key=lambda r: r.get("scheduled_at") or 0)[-limit:]
+    out = []
+    for r in rows:
+        a, b = r.get("team_a_rounds"), r.get("team_b_rounds")
+        if a is None or b is None:
+            continue
+        if r.get("team_a_id") == team_id:
+            out.append(a - b)
+        elif r.get("team_b_id") == team_id:
+            out.append(b - a)
+    return out
 
 
 def _decisions_for(conn, match_id):

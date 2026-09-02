@@ -286,3 +286,24 @@ def test_stage_suffix_strips_the_repeated_tournament_name(stage, tournament,
     from importlib import import_module
     mod = load()
     assert mod._stage_suffix(stage, tournament) == expected
+
+
+def test_round_metrics_lead_the_dossier(conn):
+    """Ordering is evidence-based, not conventional.
+
+    Backtest over 14,701 matches: where win rates were within 5 points,
+    round win % predicted at 57.0% (z=5.9) while win rate managed 50.3%.
+    If someone reorders these back to convention, this should fail and make
+    them justify it against the data.
+    """
+    out = render(load(), conn)
+    assert out.index("round win %") < out.index("win rate")
+    assert out.index("round win %") < out.index("form (last 5)")
+
+
+def test_h2h_carries_its_direction_caveat(conn):
+    """H2H accuracy does not rise with the size of the record, so the
+    margin is not an intensity measure and must not be read as one."""
+    out = render(load(), conn)
+    assert "direction" in out.lower()
+    assert "59.2%" in out

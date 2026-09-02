@@ -77,6 +77,20 @@ def assign(winner_clan: str | None, loser_clan: str | None,
     return _out(b_id, a_id, "fuzzy", round(b_won, 4))
 
 
+def assign_side(name: str | None, team_a: tuple, team_b: tuple) -> dict:
+    """Which of two known teams does a single name refer to?
+
+    Used to fill kalshi_markets.team_id: each Kalshi market is one side of a
+    match we have already bound, so the candidate pool is exactly two teams
+    and the only question is which. Same guards as assign(): an exact match
+    on one side and not the other is decisive, an ambiguous name refuses
+    rather than picking by argument order.
+
+    Returns the same shape as assign(); `loser_team_id` is the other side.
+    """
+    return assign(name, None, team_a, team_b)
+
+
 def _out(winner, loser, confidence, score) -> dict:
     return {"winner_team_id": winner, "loser_team_id": loser,
             "confidence": confidence, "score": score}

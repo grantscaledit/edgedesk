@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_charts.html" as viz %}
 {% block title %}Health — Edge Desk{% endblock %}
 {% block body %}
 <h1>Health <span class="{{ overall }}">{{ overall|upper }}</span></h1>
@@ -12,6 +13,14 @@
   {% endfor %}
 </table>
 </div>
+<h2>collection</h2>
+<div class="panel">
+  {{ viz.hours(hours) }}
+  {% if not hours.bars %}
+    <span class="gap">No price snapshots in the last 48 hours at all.</span>
+  {% endif %}
+</div>
+
 <h2>recent runs</h2>
 <div class="panel">
 <table>

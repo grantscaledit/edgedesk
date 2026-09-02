@@ -301,7 +301,8 @@ def sync(conn, days: int, dry_run: bool) -> int:
     return len(to_insert) + len(to_update)
 
 
-def resolve_all(conn, dry_run: bool, limit: int | None = None) -> tuple[int, int]:
+def resolve_all(conn, dry_run: bool, limit: int | None = None,
+                history: bool = False) -> tuple[int, int]:
     """Match unresolved Kalshi events to bo3 matches.
 
     Candidates are loaded ONCE and windowed with bisect. The previous version
@@ -310,7 +311,12 @@ def resolve_all(conn, dry_run: bool, limit: int | None = None) -> tuple[int, int
     """
     import json
 
-    q = "SELECT * FROM v_unresolved ORDER BY scheduled_at"
+    # v_unresolved covers live events only. The history view drops the
+    # status filter so settled events — which carry both a result and a
+    # closing price, and are therefore the entire backtest dataset — can be
+    # bound too. Separate views so a routine sync does not re-scan them.
+    view = "v_unresolved_history" if history else "v_unresolved"
+    q = f"SELECT * FROM {view} ORDER BY scheduled_at"
     if limit:
         q += f" LIMIT {int(limit)}"
     pending = conn.execute(q).fetchall()
@@ -379,6 +385,42 @@ def resolve_all(conn, dry_run: bool, limit: int | None = None) -> tuple[int, int
     return bound, queued
 
 
+def link_market_teams(conn) -> int:
+    """Fill kalshi_markets.team_id for newly bound events.
+
+    Mirrors scripts/link_market_teams.py; kept here so a sync never leaves
+    bound markets with a NULL side, which reads downstream as "no data"
+    rather than "not linked".
+    """
+    from edgedesk.resolve import clans
+
+    rows = conn.execute("""
+        SELECT km.ticker, km.team_name, km.team_abbr,
+               m.team_a_id, ta.canonical_name AS a_name, ta.acronym AS a_acr,
+               m.team_b_id, tb.canonical_name AS b_name, tb.acronym AS b_acr
+        FROM kalshi_markets km
+        JOIN matches m  ON m.id = km.match_id
+        JOIN teams   ta ON ta.id = m.team_a_id
+        JOIN teams   tb ON tb.id = m.team_b_id
+        WHERE km.team_id IS NULL AND km.team_name IS NOT NULL
+    """).fetchall()
+    updates = []
+    for r in rows:
+        v = clans.assign_side(
+            r["team_name"] or r["team_abbr"],
+            (r["team_a_id"], r["a_name"], r["a_acr"]),
+            (r["team_b_id"], r["b_name"], r["b_acr"]))
+        if v["winner_team_id"] is not None:
+            updates.append((v["winner_team_id"], r["ticker"]))
+    for i in range(0, len(updates), 500):
+        with conn.cursor() as cur:
+            cur.executemany(
+                "UPDATE kalshi_markets SET team_id=%s WHERE ticker=%s",
+                updates[i:i + 500])
+    conn.commit()
+    return len(updates)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=14,
@@ -386,6 +428,8 @@ def main():
     ap.add_argument("--resolve-only", action="store_true")
     ap.add_argument("--limit", type=int, default=None,
                     help="cap events resolved in one pass")
+    ap.add_argument("--history", action="store_true",
+                    help="also resolve settled events (the backtest dataset)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
@@ -398,7 +442,13 @@ def main():
         run_id = None if a.dry_run else db.start_run(conn, "bo3")
         try:
             n = 0 if a.resolve_only else sync(conn, a.days, a.dry_run)
-            bound, queued = resolve_all(conn, a.dry_run, a.limit)
+            bound, queued = resolve_all(conn, a.dry_run, a.limit, a.history)
+            if not a.dry_run:
+                # Newly bound events have markets with no team_id yet, and
+                # a NULL there silently empties every price lookup that
+                # joins on it. Cheap, so it runs every pass.
+                linked = link_market_teams(conn)
+                print(f"  market sides linked: {linked}")
             print(f"\nOK  {n} matches synced, {bound} bound, {queued} queued")
             if run_id is not None:
                 db.finish_run(conn, run_id, "ok", n + bound)

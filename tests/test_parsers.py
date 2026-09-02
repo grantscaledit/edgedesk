@@ -192,3 +192,46 @@ def test_orderbook_skips_malformed_levels():
     yes, no = parse_orderbook(book)
     assert yes == [[61, 10.0]]
     assert no == []
+
+
+# ------------------------------------------------- settled start times
+
+
+def test_start_time_comes_from_expiration_not_close_time():
+    """Regression, measured on a real settled market.
+
+    These markets set can_close_early, so Kalshi rewrites close_time to the
+    moment a winner was declared. Deriving from it put the start 47.3 hours
+    early — enough to land the fixture window on the wrong day and bind
+    unrelated matches.
+    """
+    from edgedesk.sources.kalshi import derive_scheduled_at, parse_ts
+    close = parse_ts("2026-09-02T05:39:46Z")      # rewritten on settlement
+    expiration = parse_ts("2026-09-04T05:00:00Z")  # scheduled, not rewritten
+    truth = parse_ts("2026-09-02T05:00:00Z")       # 1:00 AM EDT, per the rules
+    assert derive_scheduled_at(close, expiration) == truth
+
+
+def test_close_time_remains_the_fallback():
+    """Correct while a market is still open, which is when most resolution
+    happens."""
+    from edgedesk.sources.kalshi import derive_scheduled_at, parse_ts
+    close = parse_ts("2026-09-04T05:00:00Z")
+    assert derive_scheduled_at(close, None) == parse_ts("2026-09-02T05:00:00Z")
+
+
+def test_no_times_at_all_is_none():
+    from edgedesk.sources.kalshi import derive_scheduled_at
+    assert derive_scheduled_at(None, None) is None
+
+
+def test_parse_market_captures_expiration_time():
+    from edgedesk.sources.kalshi import parse_market
+    row = parse_market({
+        "ticker": "KXCS2GAME-26SEP020100NEXKAL-NEX",
+        "event_ticker": "KXCS2GAME-26SEP020100NEXKAL",
+        "title": "NEXVOID", "status": "finalized", "result": "yes",
+        "close_time": "2026-09-02T05:39:46Z",
+        "expiration_time": "2026-09-04T05:00:00Z"})
+    assert row["expiration_time"] is not None
+    assert row["scheduled_at"].isoformat().startswith("2026-09-02T05:00")

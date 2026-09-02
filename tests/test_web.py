@@ -38,9 +38,17 @@ class FakeConn:
         if sql.strip().upper().startswith("INSERT"):
             self.writes.append((sql, params))
             return FakeResult([{"id": 7}])
-        for frag, rows in self.responses.items():
-            if frag in sql:
-                return FakeResult(rows(params or {}) if callable(rows) else rows)
+        hits = [(frag, rows) for frag, rows in self.responses.items()
+                if frag in sql]
+        if len(hits) > 1:
+            # Returning the first match let a broad key shadow a specific
+            # one and answer the wrong question — exactly the silent-wrong
+            # -answer failure these tests exist to catch.
+            raise AssertionError(
+                "ambiguous fixture: " + ", ".join(repr(f) for f, _ in hits))
+        if hits:
+            rows = hits[0][1]
+            return FakeResult(rows(params or {}) if callable(rows) else rows)
         return FakeResult([])
 
     def commit(self):
@@ -107,9 +115,15 @@ def conn():
         "FROM decisions WHERE match_id": [],
         "FROM resolution_queue": [],
         "FROM collection_runs": [],
-        "kalshi_price_snapshots": [],
+        # Specific to the health gap check. A bare "kalshi_price_snapshots"
+        # key also matches the hourly-writes query and shadows it — the
+        # fake returns the FIRST fragment that matches, so broad keys
+        # silently answer questions they were not meant to.
+        "EXTRACT(EPOCH FROM (now() - MAX(captured_at)))": [],
         "pg_database_size": [{"b": 26 * 1024 * 1024}],
         "FROM kalshi_markets\nWHERE match_id": [],
+        "WITH sides AS": [],
+        "AS hour": [],
     })
 
 
@@ -220,3 +234,87 @@ def test_log_queue_and_health_render(client):
 def test_footer_states_no_recommendation(client):
     body = client.get("/").get_data(as_text=True)
     assert "No fair value, no recommendation" in body
+
+
+# ------------------------------------------------------------- charts
+
+
+def test_charts_render_as_svg_with_hover_titles(client):
+    """Every mark carries a <title> so the hover layer works without any
+    JavaScript at all."""
+    body = client.get("/match/99").get_data(as_text=True)
+    assert "<svg" in body
+    assert "<title>" in body
+
+
+def test_chart_marks_never_overflow_their_canvas(client):
+    """A bar longer than its box is a chart that lies about magnitude."""
+    import re
+    body = client.get("/match/99").get_data(as_text=True)
+    for svg in re.findall(r"<svg[^>]*viewBox=\"0 0 (\d+)[^\"]*\"(.*?)</svg>",
+                          body, re.S):
+        width = int(svg[0])
+        for x, w in re.findall(r'<rect x="([\d.]+)"[^>]*width="([\d.]+)"',
+                               svg[1], re.S):
+            assert float(x) >= 0 and float(x) + float(w) <= width
+
+
+def test_every_chart_value_is_direct_labelled(client):
+    """Colour never carries meaning alone: each bar prints its number and
+    its sample size beside it."""
+    body = client.get("/match/99").get_data(as_text=True)
+    if "map advantage" in body and "<rect" in body:
+        assert 'class="c-value"' in body
+        assert "n=" in body
+
+
+def test_map_advantage_explains_what_it_excludes(client):
+    body = client.get("/match/99").get_data(as_text=True)
+    assert "unknown, not an advantage" in body
+
+
+def test_price_sparkline_renders_and_reports_movement(client, conn):
+    """A flat line and one that moved twenty points are different stories
+    about what the market learned before kickoff."""
+    from datetime import timedelta
+    hours = []
+    for i in range(12):
+        at = NOW - timedelta(hours=12 - i)
+        p = 0.50 + 0.01 * i
+        hours += [{"at": at, "team_id": A, "mid": p * 100},
+                  {"at": at, "team_id": B, "mid": (1 - p) * 100}]
+    conn.responses["WITH sides AS"] = hours
+    body = client.get("/match/99").get_data(as_text=True)
+    assert "moved" in body and "pts" in body
+
+
+def test_a_one_sided_hour_is_dropped_from_the_line(client, conn):
+    """A one-sided book cannot be normalised, and inventing the other half
+    would fabricate the movement the chart exists to show."""
+    from datetime import timedelta
+    conn.responses["WITH sides AS"] = [
+        {"at": NOW - timedelta(hours=2), "team_id": A, "mid": 60.0}]
+    body = client.get("/match/99").get_data(as_text=True)
+    assert "No two-sided pre-match quotes" in body
+
+
+def test_heatmap_marks_maps_only_one_side_plays(client):
+    body = client.get("/match/99").get_data(as_text=True)
+    assert 'class="heat"' in body
+    assert "never played" in body or "empty" in body
+
+
+def test_health_shows_collection_gaps(client, conn):
+    """The outage that needed a CLI run to spot should be visible here."""
+    from datetime import timedelta
+    conn.responses["AS hour"] = [
+        {"hour": NOW - timedelta(hours=3), "rows": 400},
+        {"hour": NOW - timedelta(hours=1), "rows": 400}]
+    body = client.get("/health").get_data(as_text=True)
+    assert "NO COLLECTION" in body
+
+
+def test_health_survives_no_snapshots_at_all(client, conn):
+    conn.responses["AS hour"] = []
+    body = client.get("/health").get_data(as_text=True)
+    assert "No price snapshots in the last 48 hours" in body

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
+{% import "_charts.html" as viz %}
 {% block title %}{{ a.canonical_name }} vs {{ b.canonical_name }} — Edge Desk{% endblock %}
 
 {% macro side(name, s, team) %}
@@ -8,16 +9,22 @@
   <p class="sub">{{ s.played }} completed matches · {{ s.pool|length }} maps
     with 2+ games</p>
   <table>
+    {# Order is evidence-based. On 1,915 backtested matches where the two
+       win rates were within 5 points, round win % predicted at 57.0%
+       (z=5.9) while win rate itself managed 50.3%. Round-based figures
+       lead; form is demoted because its 53.2% does not survive correcting
+       for six signals tested at once. #}
+    {{ ui.statrow('round win %', s.round_pct) }}
+    {{ ui.statrow('avg round diff', s.round_diff, false, 2) }}
     {{ ui.statrow('win rate', s.win_rate) }}
-    {{ ui.statrow('form (last 5)', s.form) }}
-    <tr><th>form</th><td><span class="v">{{ s.form_string }}</span>
-      <span class="prov">most recent first · “-” = forfeit</span></td></tr>
+    {{ ui.statrow('map win rate', s.map_win) }}
     {{ ui.statrow('forfeit rate', s.forfeit) }}
     {{ ui.statrow('no-show risk', s.no_show) }}
     {{ ui.statrow('fatigue', s.fatigue, false, 0) }}
-    {{ ui.statrow('map win rate', s.map_win) }}
-    {{ ui.statrow('round win %', s.round_pct) }}
-    {{ ui.statrow('avg round diff', s.round_diff, false, 2) }}
+    {{ ui.statrow('form (last 5)', s.form) }}
+    <tr><th>form</th><td><span class="v">{{ s.form_string }}</span>
+      <span class="prov">most recent first · “-” = forfeit ·
+        weakest tested signal</span></td></tr>
     <tr><th>lineup</th><td>
       {% if s.roster.players %}
         <span class="v">{{ s.roster.players|map(attribute='nickname')|join(', ') }}</span>
@@ -74,9 +81,52 @@
   {{ side(b.canonical_name, sb, b) }}
 </div>
 
+<h2>market line</h2>
+<div class="panel">
+  {{ viz.spark(price, 'Implied probability that ' ~ a.canonical_name ~
+     ' wins, hourly, up to kickoff') }}
+  <p class="prov">Normalised across both sides, so a widening spread does
+    not read as movement. A line that moved hard means someone learned
+    something the dossier below does not know.</p>
+</div>
+
+<h2>map advantage</h2>
+<div class="panel">
+  {{ viz.diverging(advantage,
+        'Round differential edge per map — ' ~ a.canonical_name ~ ' minus '
+        ~ b.canonical_name,
+        a.canonical_name, b.canonical_name) }}
+  {% if not advantage.bars %}
+    <span class="gap">Not enough shared map history to compare
+      (both sides need 2+ games on a map).</span>
+  {% endif %}
+  <p class="prov">Only maps both sides have played. A map one team has never
+    played is an unknown, not an advantage — showing it would invent the
+    most decision-relevant number on the page. In a Bo3 this is a veto
+    story, and veto data is confirmed absent from bo3.</p>
+</div>
+
+<h2>map pool</h2>
+<div class="panel">
+  {{ viz.heatmap(heat) }}
+</div>
+
+<h2>round differential, recent maps</h2>
+<div class="panel">
+  {{ viz.strip(strip_a, a.canonical_name) }}
+  {{ viz.strip(strip_b, b.canonical_name) }}
+  <p class="prov">Each dot is one map. Two teams with the same average are
+    different propositions if one is +2 every map and the other alternates
+    +12 and −8.</p>
+</div>
+
 <h2>head to head</h2>
 <div class="panel">
   <table>{{ ui.statrow(a.canonical_name ~ ' vs ' ~ b.canonical_name, h2h) }}</table>
+  <p class="prov">Backtested: where the two win rates were level, H2H
+    direction predicted the winner 59.2% of the time (n=1008, z=5.9). Its
+    accuracy does not rise with the size of the record — read the
+    direction, not the margin.</p>
   {% if h2h_maps %}
   <table>
     <tr><th>map</th><th class="num">played</th><th class="num">record</th>

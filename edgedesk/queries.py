@@ -89,6 +89,11 @@ JOIN kalshi_markets m ON m.ticker = p.ticker
 WHERE m.event_ticker = %(event)s
   AND m.series_ticker = 'KXCS2GAME'
   AND m.team_id = %(team)s
+  -- Only quotes taken while the market was still trading. After settlement
+  -- the book empties to 0/100, whose mid is 50c -- recording that as the
+  -- market's opinion would put a fabricated coin flip on every decision
+  -- logged after a match finished.
+  AND (m.close_time IS NULL OR p.captured_at < m.close_time)
 ORDER BY p.captured_at DESC
 LIMIT 1;
 """
@@ -108,6 +113,37 @@ SELECT captured_at FROM (
          row_number() OVER (ORDER BY captured_at) AS rn
   FROM v_roster_changes WHERE team_id = %(team)s
 ) t WHERE rn > 1 ORDER BY captured_at DESC;
+"""
+
+# Implied probability for one side over time, up to kickoff.
+# Normalised against the other side so the pair sums to 1 — the raw quote
+# carries the spread, and a line that "moved" only because the book widened
+# is not news.
+PRICE_HISTORY = """
+WITH sides AS (
+  SELECT km.ticker, km.team_id, km.scheduled_at
+  FROM kalshi_markets km
+  WHERE km.match_id = %(match)s AND km.series_ticker = 'KXCS2GAME'
+),
+quotes AS (
+  SELECT s.team_id, p.captured_at, p.yes_bid, p.yes_ask
+  FROM kalshi_price_snapshots p
+  JOIN sides s ON s.ticker = p.ticker
+  WHERE p.yes_bid IS NOT NULL AND p.yes_ask IS NOT NULL
+    AND NOT (p.yes_bid <= 0 AND p.yes_ask >= 100)
+    AND (p.yes_ask - p.yes_bid) <= 25
+    AND (s.scheduled_at IS NULL OR p.captured_at <= s.scheduled_at)
+)
+SELECT date_trunc('hour', captured_at) AS at, team_id,
+       avg((yes_bid + yes_ask) / 2.0) AS mid
+FROM quotes GROUP BY 1, 2 ORDER BY 1;
+"""
+
+HOURLY_WRITES = """
+SELECT date_trunc('hour', captured_at) AS hour, count(*) AS rows
+FROM kalshi_price_snapshots
+WHERE captured_at > now() - interval '48 hours'
+GROUP BY 1 ORDER BY 1;
 """
 
 MATCH_TEAMS = """
@@ -164,6 +200,49 @@ def roster(conn, team_id: int) -> list[dict]:
 def roster_change_times(conn, team_id: int) -> list:
     return [r["captured_at"] for r in
             conn.execute(ROSTER_CHANGES, {"team": team_id}).fetchall()]
+
+
+def price_history(conn, match_id: int, team_a_id: int) -> list[dict]:
+    """[{at, p}] — team A's implied probability per hour, up to kickoff.
+
+    Hours where only one side quoted are dropped: a one-sided book cannot
+    be normalised, and guessing the other half would invent the movement
+    this chart exists to show.
+    """
+    rows = conn.execute(PRICE_HISTORY, {"match": match_id}).fetchall()
+    by_hour: dict = {}
+    for r in rows:
+        by_hour.setdefault(r["at"], {})[r["team_id"]] = float(r["mid"])
+    out = []
+    for at in sorted(by_hour):
+        mids = by_hour[at]
+        if len(mids) != 2 or team_a_id not in mids:
+            continue
+        total = sum(mids.values())
+        if total <= 0:
+            continue
+        out.append({"at": at, "p": mids[team_a_id] / total})
+    return out
+
+
+def hourly_writes(conn) -> list[dict]:
+    """Price-snapshot volume per hour over 48h, with missing hours filled.
+
+    A gap must exist as a row, not be absent from the list — an hour with
+    no data is the thing this is for, and a list that simply skips it looks
+    like continuous collection.
+    """
+    from datetime import timedelta
+    rows = {r["hour"]: r["rows"] for r in
+            conn.execute(HOURLY_WRITES).fetchall()}
+    if not rows:
+        return []
+    start, end = min(rows), max(rows)
+    out, cur = [], start
+    while cur <= end:
+        out.append({"hour": cur, "rows": rows.get(cur, 0)})
+        cur += timedelta(hours=1)
+    return out
 
 
 def slate(conn) -> list[dict]:

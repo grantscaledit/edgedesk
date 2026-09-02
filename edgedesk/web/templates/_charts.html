@@ -1,0 +1,187 @@
+{# SVG chart macros. Geometry comes from edgedesk.web.charts (tested);
+   these only turn numbers into elements.
+
+   Colours are diverging — blue/red poles with a gray zero — because the
+   reader's job is polarity: which side does this favour. Every mark carries
+   a <title> so the hover layer works without JavaScript, and every value is
+   direct-labelled so colour never carries meaning alone. #}
+
+{% macro diverging(c, title, pos_label, neg_label, unit='') %}
+{% if c.bars %}
+<figure class="chart">
+  <figcaption>{{ title }}</figcaption>
+  <div class="legend">
+    <span><i style="background:{{ '#3987e5' }}"></i>{{ pos_label }}</span>
+    <span><i style="background:{{ '#e66767' }}"></i>{{ neg_label }}</span>
+  </div>
+  <svg viewBox="0 0 {{ c.width }} {{ c.height + 16 }}" width="100%"
+       height="{{ c.height + 16 }}" role="img"
+       aria-label="{{ title }}">
+    <line x1="{{ c.mid }}" y1="0" x2="{{ c.mid }}" y2="{{ c.height }}"
+          stroke="#4a4f5c" stroke-width="1"/>
+    {% for b in c.bars %}
+    <g class="bar">
+      <title>{{ b.label }} — {{ b.detail }}</title>
+      <text x="{{ c.label_w - 10 }}" y="{{ b.label_y }}" text-anchor="end"
+            class="c-label">{{ b.label }}</text>
+      <rect x="{{ '%.1f'|format(b.x) }}" y="{{ b.y }}"
+            width="{{ '%.1f'|format(b.w) }}" height="{{ b.h }}"
+            rx="4" fill="{{ b.fill }}"/>
+      <text x="{{ '%.1f'|format(b.text_x) }}" y="{{ b.label_y }}"
+            text-anchor="{{ b.anchor }}" class="c-value">
+        {{ '%+.1f'|format(b.value) }}{{ unit }}
+        <tspan class="c-n">n={{ b.n }}</tspan>
+      </text>
+    </g>
+    {% endfor %}
+  </svg>
+</figure>
+{% endif %}
+{% endmacro %}
+
+{% macro strip(s, label) %}
+{% if s.dots %}
+<div class="strip">
+  <span class="c-label">{{ label }}</span>
+  <svg viewBox="0 0 {{ s.width }} {{ s.height }}" width="100%"
+       height="{{ s.height }}" role="img"
+       aria-label="{{ label }}: round differential across the last {{ s.n }} maps">
+    <line x1="{{ s.pad }}" y1="{{ s.cy }}" x2="{{ s.width - s.pad }}"
+          y2="{{ s.cy }}" stroke="#2c3038" stroke-width="1"/>
+    <line x1="{{ s.mid }}" y1="6" x2="{{ s.mid }}" y2="{{ s.height - 6 }}"
+          stroke="#4a4f5c" stroke-width="1"/>
+    {% for d in s.dots %}
+    <circle cx="{{ '%.1f'|format(d.cx) }}" cy="{{ d.cy }}" r="{{ d.r }}"
+            fill="{{ d.fill }}" stroke="#171a21" stroke-width="2">
+      <title>{{ '%+d'|format(d.value) }} rounds</title>
+    </circle>
+    {% endfor %}
+  </svg>
+  <span class="c-n">{{ s.n }} maps · ±{{ s.max|int }}</span>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro heatmap(h) %}
+{% if h.rows %}
+<figure class="chart">
+  <figcaption>Round differential per map — every map either side has played.
+    Unplayed cells are marked, never coloured: an unknown is not a zero.</figcaption>
+  <table class="heat">
+    <tr><th>map</th>
+      {% for t in h.teams %}<th class="num">{{ t }}</th>{% endfor %}</tr>
+    {% for r in h.rows %}
+    <tr>
+      <td>{{ r.map }}</td>
+      {% for c in r.cells %}
+      <td class="num cell{% if c.value is none %} empty{% endif %}"
+          {% if c.fill %}style="background:{{ c.fill }}{{
+            '%02x'|format((c.alpha * 255)|int) }}"{% endif %}
+          title="{{ r.map }} — {{ c.detail }}">
+        {{ c.label }}
+        {% if c.played %}<span class="c-n">{{ c.played }}</span>{% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+</figure>
+{% endif %}
+{% endmacro %}
+
+{% macro spark(s, label) %}
+{% if s.path %}
+<figure class="chart">
+  <figcaption>{{ label }}</figcaption>
+  <svg viewBox="0 0 {{ s.width }} {{ s.height }}" width="100%"
+       height="{{ s.height }}" role="img" aria-label="{{ label }}">
+    <line x1="0" y1="{{ s.mid_y }}" x2="{{ s.width }}" y2="{{ s.mid_y }}"
+          stroke="#2c3038" stroke-width="1" stroke-dasharray="3 3"/>
+    <path d="{{ s.path }}" fill="none" stroke="{{ s.fill }}"
+          stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    {% for d in s.dots %}
+    <circle cx="{{ d.cx }}" cy="{{ d.cy }}" r="4" fill="{{ s.fill }}"
+            stroke="#171a21" stroke-width="2" opacity="0.9">
+      <title>{{ '%.0f%%'|format(d.p * 100) }} at
+        {{ d.at.strftime('%m-%d %H:%M') }}</title>
+    </circle>
+    {% endfor %}
+  </svg>
+  <div class="prov">
+    opened {{ '%.0f%%'|format(s.first * 100) }} ·
+    closed {{ '%.0f%%'|format(s.last * 100) }} ·
+    <span class="{{ 'pos' if s.move >= 0 else 'neg' }}">
+      moved {{ '%+.0f'|format(s.move * 100) }} pts</span> ·
+    {{ s.n }} hourly quotes · dashed line is 50%
+  </div>
+</figure>
+{% else %}
+<p class="gap">No two-sided pre-match quotes recorded for this match yet.</p>
+{% endif %}
+{% endmacro %}
+
+{% macro hours(h) %}
+{% if h.bars %}
+<figure class="chart">
+  <figcaption>Price snapshots written per hour, last 48h — peak
+    {{ h.max }}. A gap is a stretch where collection stopped.</figcaption>
+  <svg viewBox="0 0 {{ h.width }} {{ h.height }}" width="100%"
+       height="{{ h.height }}" role="img"
+       aria-label="Snapshots written per hour over the last 48 hours">
+    {% for b in h.bars %}
+    <rect x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}"
+          rx="2" fill="{{ '#e66767' if b.gap else '#3987e5' }}"
+          opacity="{{ '0.55' if b.gap else '1' }}">
+      <title>{{ b.hour.strftime('%m-%d %H:00') }} — {{ b.rows }} rows
+        {%- if b.gap %} (NO COLLECTION){% endif %}</title>
+    </rect>
+    {% endfor %}
+  </svg>
+</figure>
+{% endif %}
+{% endmacro %}
+
+{% macro calibration(c) %}
+{% if c.rows %}
+<figure class="chart">
+  <figcaption>What you said versus what happened. The two ends of each row
+    are the same claim, forecast and observed — close together is well
+    calibrated.</figcaption>
+  <svg viewBox="0 0 {{ c.width }} {{ c.rows|length * 26 + 18 }}" width="100%"
+       height="{{ c.rows|length * 26 + 18 }}" role="img"
+       aria-label="Calibration by forecast bucket">
+    {% for t in c.ticks %}
+    <line x1="{{ c.label_w + t * c.plot_w }}" y1="0"
+          x2="{{ c.label_w + t * c.plot_w }}"
+          y2="{{ c.rows|length * 26 }}" stroke="#22262e" stroke-width="1"/>
+    <text x="{{ c.label_w + t * c.plot_w }}"
+          y="{{ c.rows|length * 26 + 13 }}" text-anchor="middle"
+          class="c-n">{{ '%.0f%%'|format(t * 100) }}</text>
+    {% endfor %}
+    {% for r in c.rows %}
+    <g>
+      <title>{{ r.label }}: said {{ '%.0f%%'|format(r.forecast * 100) }},
+        happened {{ '%.0f%%'|format(r.actual * 100) }} over {{ r.n }}</title>
+      <text x="{{ c.label_w - 8 }}" y="{{ loop.index0 * 26 + 17 }}"
+            text-anchor="end" class="c-label">{{ r.label }}</text>
+      <line x1="{{ r.x1 }}" y1="{{ loop.index0 * 26 + 13 }}"
+            x2="{{ r.x2 }}" y2="{{ loop.index0 * 26 + 13 }}"
+            stroke="{{ '#3987e5' if r.good else '#e66767' }}"
+            stroke-width="2"/>
+      <circle cx="{{ r.fx }}" cy="{{ loop.index0 * 26 + 13 }}" r="5"
+              fill="#171a21" stroke="#8b93a7" stroke-width="2"/>
+      <circle cx="{{ r.ax }}" cy="{{ loop.index0 * 26 + 13 }}" r="5"
+              fill="{{ '#3987e5' if r.good else '#e66767' }}"
+              stroke="#171a21" stroke-width="2"/>
+      <text x="{{ c.width - 4 }}" y="{{ loop.index0 * 26 + 17 }}"
+            text-anchor="end" class="c-n">n={{ r.n }}</text>
+    </g>
+    {% endfor %}
+  </svg>
+  <div class="prov">
+    <span class="key"><i class="hollow"></i>you said</span>
+    <span class="key"><i style="background:#3987e5"></i>what happened</span>
+  </div>
+</figure>
+{% endif %}
+{% endmacro %}

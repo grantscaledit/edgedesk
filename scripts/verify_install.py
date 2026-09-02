@@ -48,8 +48,10 @@ MODULES = [
     "edgedesk.queries",
     "edgedesk.stats.scoring",
     "edgedesk.stats.roster",
+    "edgedesk.stats.backtest",
     "edgedesk.decisions",
     "edgedesk.web.app",
+    "edgedesk.web.charts",
 ]
 
 SCRIPTS = [
@@ -67,6 +69,10 @@ SCRIPTS = [
     "scripts/sync_tournaments.py",
     "scripts/explore_bo3.py",
     "scripts/serve.py",
+    "scripts/backtest.py",
+    "scripts/vs_market.py",
+    "scripts/link_market_teams.py",
+    "scripts/fix_settled_times.py",
 ]
 
 MIGRATIONS = [
@@ -77,12 +83,15 @@ MIGRATIONS = [
     "migrations/005_decisions.sql",
     "migrations/006_players.sql",
     "migrations/007_tournaments.sql",
+    "migrations/008_resolve_history.sql",
+    "migrations/009_expiration_time.sql",
     "migrations/run.py",
 ]
 
 TEMPLATES = [
     "edgedesk/web/templates/base.html",
     "edgedesk/web/templates/_macros.html",
+    "edgedesk/web/templates/_charts.html",
     "edgedesk/web/templates/slate.html",
     "edgedesk/web/templates/match.html",
     "edgedesk/web/templates/log.html",
@@ -110,6 +119,10 @@ TESTS = [
     "tests/test_decide.py",
     "tests/test_roster.py",
     "tests/test_web.py",
+    "tests/test_backtest.py",
+    "tests/test_charts.py",
+    "tests/test_vs_market.py",
+    "tests/test_collect_writes.py",
     "tests/test_h2h_dedup.py",
     "tests/fixtures/kalshi_markets.json",
 ]
@@ -119,7 +132,8 @@ TESTS = [
 SYMBOLS = [
     ("scripts/phase1_sync.py", ["def sync(", "def resolve_all(", "def main("]),
     ("scripts/sync_maps.py", ["def main("]),
-    ("edgedesk/resolve/clans.py", ["def assign(", "def rounds_for("]),
+    ("edgedesk/resolve/clans.py", ["def assign(", "def rounds_for(",
+                                   "def assign_side("]),
     ("edgedesk/resolve/fixtures.py", ["def resolve(", "def window_slice(",
                                       "def similarity("]),
     ("edgedesk/stats/core.py", ["class Stat", "def n_eff(", "def shrink("]),
@@ -136,6 +150,13 @@ SYMBOLS = [
     ("scripts/sync_players.py", ["def main("]),
     ("scripts/sync_tournaments.py", ["def main("]),
     ("edgedesk/web/app.py", ["def create_app(", "def decide("]),
+    ("edgedesk/web/charts.py", ["def diverging_bars(", "def strip(",
+                                "def map_advantage("]),
+    ("edgedesk/stats/backtest.py", ["def walk_forward(", "def summarise(",
+                                    "random_control"]),
+    ("scripts/vs_market.py", ["def build_events(", "def mid_prob("]),
+    ("scripts/link_market_teams.py", ["def main(", "def aliases("]),
+    ("scripts/phase0_collect.py", ["def write_markets(", "def collect("]),
     ("edgedesk/decisions.py", ["def log(", "def validate(",
                                "def market_prob_for("]),
 ]

@@ -92,3 +92,38 @@ def test_unresolved_map_contributes_no_rounds():
     """An unresolved winner must not contribute round differential to either
     side -- a silently mis-assigned 13-7 is worse than a missing row."""
     assert rounds_for(13, 7, winner_team_id=None, team_a_id=1) == (None, None)
+
+
+# --------------------------------------------------------- assign_side
+
+
+def test_assign_side_picks_the_matching_team():
+    """Filling kalshi_markets.team_id: one Kalshi name, two known teams."""
+    from edgedesk.resolve.clans import assign_side
+    r = assign_side("UUST", A, B)
+    assert r["winner_team_id"] == 2 and r["loser_team_id"] == 1
+
+
+def test_assign_side_matches_a_shortened_name():
+    from edgedesk.resolve.clans import assign_side
+    assert assign_side("Diamant", A, B)["winner_team_id"] == 1
+
+
+def test_assign_side_refuses_an_ambiguous_name():
+    """A market bound to the wrong side would invert every price it feeds,
+    so an acronym collision must refuse rather than pick by argument order.
+    """
+    from edgedesk.resolve.clans import assign_side
+    a = (10, "BIG", None)
+    b = (11, "BIG Academy", "BIG")
+    assert assign_side("BIG", a, b)["winner_team_id"] is None
+
+
+def test_assign_side_refuses_an_unrelated_name():
+    from edgedesk.resolve.clans import assign_side
+    assert assign_side("Nuclear TigeRES", A, B)["winner_team_id"] is None
+
+
+def test_assign_side_handles_a_missing_name():
+    from edgedesk.resolve.clans import assign_side
+    assert assign_side(None, A, B)["winner_team_id"] is None

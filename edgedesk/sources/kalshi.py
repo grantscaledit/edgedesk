@@ -16,7 +16,8 @@ tickers instead — each ends in one team's abbreviation, and each market title
 carries that team's full name. The event ticker is an identifier, never a
 data source.
 
-Start time is derived as close_time - 48h, which is more reliable than parsing
+Start time is derived as expiration_time - 48h (NOT close_time - see
+derive_scheduled_at), which is more reliable than parsing
 the ticker's Eastern-time HHMM field.
 """
 from __future__ import annotations
@@ -131,8 +132,23 @@ def to_cents(value) -> int | None:
         return None
 
 
-def derive_scheduled_at(close_time: datetime | None) -> datetime | None:
-    return close_time - CLOSE_OFFSET if close_time else None
+def derive_scheduled_at(close_time: datetime | None,
+                        expiration_time: datetime | None = None):
+    """Match start = expiration_time - 48h, falling back to close_time.
+
+    NOT close_time first. These markets set can_close_early, so Kalshi
+    rewrites close_time to the moment a winner was declared once the market
+    settles — on a real settled market that put the derived start 47.3 hours
+    early, which is enough to land the fixture-tuple window on the wrong
+    day entirely.
+
+    expiration_time is the SCHEDULED expiry and is not rewritten. On the
+    same market it reproduced the start time in the rules text exactly.
+    close_time remains the fallback because it is correct while a market is
+    still open, which is when most resolution happens.
+    """
+    base = expiration_time or close_time
+    return base - CLOSE_OFFSET if base else None
 
 
 def pick(m: dict, *names):
@@ -174,6 +190,8 @@ def parse_market(m: dict) -> dict:
                  or None)
 
     close_time = parse_ts(m.get("close_time"))
+    expiration_time = parse_ts(m.get("expiration_time")
+                               or m.get("latest_expiration_time"))
 
     return {
         "ticker": ticker,
@@ -186,7 +204,8 @@ def parse_market(m: dict) -> dict:
         "status": m.get("status") or "unknown",
         "result": (m.get("result") or None) or None,
         "close_time": close_time,
-        "scheduled_at": derive_scheduled_at(close_time),
+        "expiration_time": expiration_time,
+        "scheduled_at": derive_scheduled_at(close_time, expiration_time),
         "rules_primary": m.get("rules_primary"),
         # ---- price snapshot ----
         "yes_bid":       to_cents(pick(m, "yes_bid_dollars", "yes_bid")),

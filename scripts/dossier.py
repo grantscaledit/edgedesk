@@ -108,7 +108,22 @@ def team_block(name, rows, map_rows, team_id, pool_ff, days,
     print(f"    sample: {len(played)} completed matches over {days}d, "
           f"{len(map_rows)} map rows")
 
+    # ORDER IS EVIDENCE-BASED, not conventional. Backtested over 14,701
+    # historical matches (scripts/backtest.py):
+    #
+    #   On the 1,915 matches where the two win rates were within 5 points,
+    #   round win % still predicted the winner 57.0% of the time (z=5.9)
+    #   while win rate itself managed 50.3% (z=0.3) -- nothing, by
+    #   construction. Round-based figures know things win rate does not,
+    #   so they lead.
+    #
+    #   form (last 5) reached only 53.2% (z=2.7) on those matches, which
+    #   does not survive correcting for six signals tested at once. It is
+    #   kept for context and deliberately demoted.
+    row("round win %", maps.round_win_pct(map_rows, team_id))
+    row("avg round diff", maps.avg_round_diff(map_rows, team_id), pct=False)
     row("win rate", tstats.win_rate(rows, team_id))
+    row("map win rate", maps.map_win_rate(map_rows, team_id))
     row("form (last 5)", tstats.form(rows, team_id, 5))
     print(f"    {'form string':<22} {tstats.form_string(rows, team_id, 8)} "
           "(most recent first, '-' = forfeit)")
@@ -198,6 +213,10 @@ def show_match(conn, match_id, days):
                data.get("b_roster"), data.get("b_roster_changes"))
 
     section("HEAD TO HEAD")
+    print("    Backtested: on matches where the two win rates were level, "
+          "H2H direction\n    predicted the winner 59.2% of the time "
+          "(n=1008, z=5.9). Its accuracy does NOT\n    rise with the size "
+          "of the record, so read the DIRECTION, not the margin.")
     rec = h2h.record(data["all_matches"], a_id, b_id)
     print(f"    {ta['canonical_name']} vs {tb['canonical_name']}: "
           f"{rec.render()}")

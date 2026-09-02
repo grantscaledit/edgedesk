@@ -94,3 +94,18 @@ def test_quote_age_is_reported_so_staleness_is_visible():
 def test_known_tag_list_is_not_empty_and_has_the_documented_ones():
     tags = set(load().TAGS)
     assert {"map_pool", "forfeit_risk", "price_value", "coin_flip"} <= tags
+
+
+def test_an_empty_book_is_not_a_fifty_cent_opinion():
+    """Regression: after settlement the book empties to 0/100, whose mid is
+    50c. Recorded as the market price that is a fabricated coin flip — and
+    it normalised to an overround of exactly 100 across 1,553 events, which
+    made every one of them look like a market with no opinion."""
+    prob, _ = load().market_prob_for(
+        FakeConn(quote(0, 100, last=88)), "EV", 1)
+    assert prob == pytest.approx(0.88)      # falls back to the last trade
+
+
+def test_an_empty_book_with_no_trade_yields_nothing():
+    prob, _ = load().market_prob_for(FakeConn(quote(0, 100)), "EV", 1)
+    assert prob is None

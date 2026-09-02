@@ -32,16 +32,22 @@ from edgedesk.sources.kalshi import (                      # noqa: E402
 UPSERT_MARKET = """
 INSERT INTO kalshi_markets
   (ticker, event_ticker, series_ticker, team_abbr, team_name, map_index,
-   title, status, result, close_time, scheduled_at, rules_primary, updated_at)
+   title, status, result, close_time, expiration_time, scheduled_at,
+   rules_primary, updated_at)
 VALUES
   (%(ticker)s, %(event_ticker)s, %(series_ticker)s, %(team_abbr)s, %(team_name)s,
    %(map_index)s, %(title)s, %(status)s, %(result)s, %(close_time)s,
-   %(scheduled_at)s, %(rules_primary)s, now())
+   %(expiration_time)s, %(scheduled_at)s, %(rules_primary)s, now())
 ON CONFLICT (ticker) DO UPDATE SET
   status        = EXCLUDED.status,
   result        = COALESCE(EXCLUDED.result, kalshi_markets.result),
-  close_time    = EXCLUDED.close_time,
-  scheduled_at  = EXCLUDED.scheduled_at,
+  close_time      = EXCLUDED.close_time,
+  expiration_time = COALESCE(EXCLUDED.expiration_time,
+                             kalshi_markets.expiration_time),
+  -- Only ever moves the start time when we have the reliable field.
+  scheduled_at    = CASE WHEN EXCLUDED.expiration_time IS NOT NULL
+                         THEN EXCLUDED.scheduled_at
+                         ELSE kalshi_markets.scheduled_at END,
   team_name     = COALESCE(EXCLUDED.team_name, kalshi_markets.team_name),
   rules_primary = COALESCE(EXCLUDED.rules_primary, kalshi_markets.rules_primary),
   updated_at    = now();
@@ -87,6 +93,34 @@ def book_verdict(row: dict, max_spread: int, min_volume: float) -> str:
     return "fetch"
 
 
+def write_markets(conn, rows, chunk: int = 500, label: str = "open") -> int:
+    """Batch-write markets and their price snapshots.
+
+    Row-by-row execute against a remote database costs one network round
+    trip each. The settled sweep touches ~12k markets and issued TWO per
+    market — roughly 24,000 sequential round trips and about twelve minutes
+    of complete silence, which looks exactly like a hang and got Ctrl+C'd.
+
+    This is the third time in this project that the slow thing was also the
+    unlogged thing. Batch the writes AND print progress; either alone is
+    not enough.
+    """
+    if not rows:
+        return 0
+    written = 0
+    for i in range(0, len(rows), chunk):
+        part = rows[i:i + chunk]
+        with conn.cursor() as cur:
+            cur.executemany(UPSERT_MARKET, part)
+            cur.executemany(INSERT_PRICE, part)
+        conn.commit()
+        written += len(part)
+        if len(rows) > chunk:
+            print(f"    wrote {min(i + chunk, len(rows))}/{len(rows)} "
+                  f"{label}", flush=True)
+    return written
+
+
 def collect(settled: bool = False, books: bool = True, diagnose: bool = False) -> int:
     max_spread, min_volume = book_config()
     print(f"book filter: max_spread={max_spread}  min_volume={min_volume:g}"
@@ -102,33 +136,28 @@ def collect(settled: bool = False, books: bool = True, diagnose: bool = False) -
             statuses = ["open"] + (["settled"] if settled else [])
 
             for series in SERIES:
-                seen = 0
+                open_rows = []
                 for raw in k.markets(series, status=statuses[0]):
                     row = parse_market(raw)
-                    seen += 1
-                    if not diagnose:
-                        conn.execute(UPSERT_MARKET, row)
-                        conn.execute(INSERT_PRICE, row)
-                        written += 1
+                    open_rows.append(row)
                     if books:
                         verdict = book_verdict(row, max_spread, min_volume)
                         reasons[f"{series}: {verdict}"] += 1
                         if verdict == "fetch":
                             targets.append(row["ticker"])
-                print(f"  {series} open: {seen} markets")
+                print(f"  {series} open: {len(open_rows)} markets")
+                if not diagnose:
+                    written += write_markets(conn, open_rows)
 
                 if settled:
-                    n = 0
+                    rows = []
                     for raw in k.markets(series, status="settled"):
-                        row = parse_market(raw)
-                        n += 1
-                        if not diagnose:
-                            conn.execute(UPSERT_MARKET, row)
-                            conn.execute(INSERT_PRICE, row)
-                            written += 1
-                    print(f"  {series} settled: {n} markets")
-                if not diagnose:
-                    conn.commit()
+                        rows.append(parse_market(raw))
+                        if len(rows) % 500 == 0:
+                            print(f"    fetched {len(rows)}...", flush=True)
+                    print(f"  {series} settled: {len(rows)} markets")
+                    if not diagnose:
+                        written += write_markets(conn, rows, label="settled")
 
             if books:
                 print("\nbook eligibility:")
