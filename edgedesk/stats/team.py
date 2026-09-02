@@ -43,8 +43,14 @@ def win_rate(rows, team_id, shrunk: bool = True, now=None) -> Stat:
     return rate(w, l, played, POOL_WIN_RATE if shrunk else None, now=now)
 
 
-def forfeit_rate(rows, team_id, shrunk: bool = True, now=None) -> Stat:
+def forfeit_rate(rows, team_id, shrunk: bool = True,
+                 pool_mean: float | None = None, now=None) -> Stat:
     """Share of completed matches decided by default.
+
+    `pool_mean` is the measured forfeit rate across the whole board; pass
+    it whenever you have it. The module constant is a figure taken from an
+    early look at the data, and shrinking toward a stale prior compares a
+    team against a population that no longer exists.
 
     The single highest-value risk signal available, and bo3 is the only
     source exposing it cleanly. Note what it measures: under Kalshi's rules
@@ -55,8 +61,9 @@ def forfeit_rate(rows, team_id, shrunk: bool = True, now=None) -> Stat:
     if not played:
         return Stat.unavailable("no completed matches in window")
     ff = sum(1 for r in played if r.get("decided_by_default"))
-    return rate(ff, len(played) - ff, played,
-                POOL_FORFEIT_RATE if shrunk else None, now=now)
+    prior = POOL_FORFEIT_RATE if pool_mean is None else pool_mean
+    return rate(ff, len(played) - ff, played, prior if shrunk else None,
+                now=now)
 
 
 def form(rows, team_id, last: int = 5, now=None) -> Stat:
@@ -119,7 +126,8 @@ def fatigue(rows, now=None) -> Stat:
 
 
 def no_show_risk(rows, team_id, concurrent_tournaments: int = 1,
-                 roster_changes_30d: int | None = None, now=None) -> Stat:
+                 roster_changes_30d: int | None = None,
+                 pool_mean: float | None = None, now=None) -> Stat:
     """clamp(forfeit_rate + 0.02·churn + 0.01·(concurrent−1) + 0.01·next_48h,
     0, 0.40)
 
@@ -129,7 +137,7 @@ def no_show_risk(rows, team_id, concurrent_tournaments: int = 1,
     is None the term is omitted AND the note says so, because a risk score
     that hides which of its inputs are missing is worse than no score.
     """
-    ff = forfeit_rate(rows, team_id, shrunk=True, now=now)
+    ff = forfeit_rate(rows, team_id, shrunk=True, pool_mean=pool_mean, now=now)
     if ff.value is None:
         return Stat.unavailable("no completed matches to estimate forfeit rate")
     upcoming = matches_in_window(rows, 2.0, now, future=True)

@@ -136,7 +136,15 @@ scripts/dossier.py       render a full dossier       (done)
 edgedesk/stats/scoring.py  brier, calibration, fees  (done)
 scripts/decide.py        log a decision              (done)
 scripts/review.py        score + calibration report  (done)
+edgedesk/web/            Flask app, server-rendered  (done)
+scripts/serve.py         run it locally              (done)
 ```
+
+**The web layer computes nothing.** Routes read through `edgedesk.queries`
+and compute through `edgedesk.stats`. A number in a template that is not a
+`Stat` bypassed the display contract and is a bug. Templates render figures
+only via the `_macros.html` `stat()` macro, and `test_web.py` inspects the
+rendered HTML per table cell to enforce it.
 
 **Log the no-bets.** A log of only placed bets is a biased sample of the
 decisions made and will flatter the tool. Every decision stores the market's

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ a.canonical_name }} vs {{ b.canonical_name }} — Edge Desk{% endblock %}
+
+{% macro side(name, s, team) %}
+<div class="panel">
+  <h1>{{ name }}</h1>
+  <p class="sub">{{ s.played }} completed matches · {{ s.pool|length }} maps
+    with 2+ games</p>
+  <table>
+    {{ ui.statrow('win rate', s.win_rate) }}
+    {{ ui.statrow('form (last 5)', s.form) }}
+    <tr><th>form</th><td><span class="v">{{ s.form_string }}</span>
+      <span class="prov">most recent first · “-” = forfeit</span></td></tr>
+    {{ ui.statrow('forfeit rate', s.forfeit) }}
+    {{ ui.statrow('no-show risk', s.no_show) }}
+    {{ ui.statrow('fatigue', s.fatigue, false, 0) }}
+    {{ ui.statrow('map win rate', s.map_win) }}
+    {{ ui.statrow('round win %', s.round_pct) }}
+    {{ ui.statrow('avg round diff', s.round_diff, false, 2) }}
+    <tr><th>lineup</th><td>
+      {% if s.roster.players %}
+        <span class="v">{{ s.roster.players|map(attribute='nickname')|join(', ') }}</span>
+        <span class="prov">{{ s.roster.size }}/5
+          {%- if s.roster.staleness_days is not none %} ·
+          captured {{ '%.0f'|format(s.roster.staleness_days) }}d ago{% endif %} ·
+          {{ s.roster.changes_30d }} change(s) in 30d</span>
+        {% if not s.roster.complete %}
+          <div class="prov gap">incomplete lineup</div>
+        {% endif %}
+      {% else %}
+        <span class="gap">not captured — run scripts/sync_players.py</span>
+      {% endif %}
+    </td></tr>
+  </table>
+
+  {% if s.pool %}
+  <h2>map pool</h2>
+  <table>
+    <tr><th>map</th><th class="num">played</th><th class="num">record</th>
+        <th class="num">round%</th><th class="num">diff</th></tr>
+    {% for p in s.pool %}
+    <tr>
+      <td>{{ p.map }}</td>
+      <td class="num">{{ p.played }}</td>
+      <td class="num">{{ p.win_rate.raw }}</td>
+      <td class="num">{{ '%.0f%%'|format(p.round_win_pct.value * 100)
+                         if p.round_win_pct.value is not none else '—' }}</td>
+      <td class="num {{ 'pos' if (p.round_diff.value or 0) > 0 else 'neg' }}">
+        {{ '%+.1f'|format(p.round_diff.value)
+           if p.round_diff.value is not none else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="gap">Not enough resolved maps to show a pool.</p>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% block body %}
+<h1>{{ a.canonical_name }} <span class="prov">vs</span> {{ b.canonical_name }}</h1>
+<p class="sub">
+  {{ m.scheduled_at.strftime('%Y-%m-%d %H:%M UTC') if m.scheduled_at else '?' }}
+  · Bo{{ m.format_bo or '?' }} · tier {{ m.tier or '?' }}{{ m.tier_rank or '' }}
+  {% if m.tournament %}<br>{{ m.tournament }}
+    {% if m.prize %} · prize {{ '{:,}'.format(m.prize) }}{% endif %}
+    {% if m.event_type %} · {{ m.event_type }}{% endif %}
+  {% endif %}
+</p>
+
+<div class="cols">
+  {{ side(a.canonical_name, sa, a) }}
+  {{ side(b.canonical_name, sb, b) }}
+</div>
+
+<h2>head to head</h2>
+<div class="panel">
+  <table>{{ ui.statrow(a.canonical_name ~ ' vs ' ~ b.canonical_name, h2h) }}</table>
+  {% if h2h_maps %}
+  <table>
+    <tr><th>map</th><th class="num">played</th><th class="num">record</th>
+        <th class="num">diff</th></tr>
+    {% for e in h2h_maps %}
+    <tr><td>{{ e.map }}</td><td class="num">{{ e.played }}</td>
+        <td class="num">{{ e.record }}</td>
+        <td class="num">{{ '%+.1f'|format(e.avg_round_diff)
+                           if e.avg_round_diff is not none else '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  <p class="prov">common opponents: {{ common.count }} — {{ common.note }}</p>
+</div>
+
+<h2>log a decision</h2>
+<div class="panel">
+  <p class="sub">Log the no-bets too. A log of only placed bets is a biased
+    sample of the decisions you made, and the passes are where the dossier
+    may have earned its keep. The market price is captured now — it is
+    unrecoverable later.</p>
+  <form class="decide" method="post"
+        action="{{ url_for('decide', match_id=m.id) }}">
+    <div class="row">
+      <div>
+        <label for="prob_a">P({{ a.canonical_name }} wins)</label>
+        <input id="prob_a" name="prob_a" type="number" step="0.01" min="0"
+               max="1" placeholder="0.62" required>
+      </div>
+      <div>
+        <label for="action">action</label>
+        <select id="action" name="action">
+          <option value="no_bet">no bet</option>
+          <option value="bet_a">bet {{ a.canonical_name }}</option>
+          <option value="bet_b">bet {{ b.canonical_name }}</option>
+        </select>
+      </div>
+      <div>
+        <label for="price">fill price (¢)</label>
+        <input id="price" name="price" type="number" min="1" max="99">
+      </div>
+      <div>
+        <label for="size">contracts</label>
+        <input id="size" name="size" type="number" min="1">
+      </div>
+    </div>
+    <div>
+      <label>reasons</label>
+      <div class="tags">
+        {% for t in tags %}
+        <label><input type="checkbox" name="tags" value="{{ t }}"> {{ t }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    <div><button type="submit">Log decision</button></div>
+  </form>
+</div>
+
+{% if recent %}
+<h2>decisions on this match</h2>
+<div class="panel">
+<table>
+  <tr><th>#</th><th>when</th><th class="num">you</th><th class="num">market</th>
+      <th>action</th><th>tags</th><th>result</th></tr>
+  {% for d in recent %}
+  <tr>
+    <td>{{ d.id }}</td>
+    <td>{{ d.created_at.strftime('%m-%d %H:%M') }}</td>
+    <td class="num">{{ '%.0f%%'|format(d.prob_team_a * 100) }}</td>
+    <td class="num">{{ '%.0f%%'|format(d.market_prob_a * 100)
+                       if d.market_prob_a is not none else '—' }}</td>
+    <td>{{ d.action }}</td>
+    <td class="prov">{{ (d.tags or [])|join(', ') }}</td>
+    <td>{{ d.result or 'open' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+
+<h2>data gaps</h2>
+<div class="panel prov">
+  <div>player ratings / talent gap — bo3 publishes no player stats at all;
+    requires HLTV</div>
+  <div>roster continuity — needs per-map participation (HLTV); lineups
+    themselves are collected</div>
+  <div>CT/T side split — not available from bo3 in any form</div>
+  <div>veto data — confirmed absent from bo3; decisive in Bo3</div>
+</div>
+{% endblock %}

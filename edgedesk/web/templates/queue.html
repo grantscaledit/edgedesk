@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Resolution queue — Edge Desk{% endblock %}
+{% block body %}
+<h1>Resolution queue</h1>
+<p class="sub">Kalshi events with no confident bo3 match. Queuing is correct
+  behaviour — binding the wrong match produces a confident dossier about a
+  different game, which is far worse than binding nothing.</p>
+{% if not rows %}
+  <div class="panel ok">Nothing queued. Every listed event is bound.</div>
+{% else %}
+{% for r in rows %}
+<div class="panel">
+  <div class="v">{{ r.kalshi_event_ticker }}</div>
+  <table>
+    <tr><th>candidate</th><th class="num">score</th><th class="num">team</th></tr>
+    {% for c in (r.candidates or [])[:5] %}
+    <tr>
+      <td>{{ c.team_a_name }} vs {{ c.team_b_name }}</td>
+      <td class="num">{{ c.score }}</td>
+      <td class="num">{{ c.team_score }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% if not r.candidates %}
+    <span class="gap">no candidates in window — bo3 may not list this
+      fixture at all</span>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

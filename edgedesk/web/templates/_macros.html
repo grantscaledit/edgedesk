@@ -1,0 +1,22 @@
+{# The display contract, in one place.
+
+   A Stat can never render as a bare number: value and provenance are
+   emitted together or the figure reads "no data" with a reason. Every
+   template uses this macro, so there is one place to get it right and one
+   place a test can check. #}
+{% macro stat(s, pct=true, places=none) %}
+  {% if s.value is none %}
+    <span class="gap">no data — {{ s.note or 'unavailable' }}</span>
+  {% else %}
+    <span class="v {% if s.is_thin %}thin{% endif %}">
+      {{ s.render(pct=pct, places=places).split(' (')[0] }}</span>
+    <span class="prov">{{ s.raw }}{% if s.raw %} · {% endif %}n={{ s.n }} ·
+      n_eff={{ '%.1f'|format(s.n_eff) }}{% if s.staleness_days is not none %}
+      · {{ '%.0f'|format(s.staleness_days) }}d{% endif %}</span>
+    {% if s.note %}<div class="prov gap">{{ s.note }}</div>{% endif %}
+  {% endif %}
+{% endmacro %}
+
+{% macro statrow(label, s, pct=true, places=none) %}
+  <tr><th>{{ label }}</th><td>{{ stat(s, pct, places) }}</td></tr>
+{% endmacro %}

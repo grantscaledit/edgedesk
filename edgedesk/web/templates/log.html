@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Decision log — Edge Desk{% endblock %}
+{% block body %}
+<h1>Decision log</h1>
+<p class="sub">{{ rows|length }} entries · {{ scored|length }} scored ·
+  {{ fmp|length }} resolved at Fair Market Price (excluded — a pre-game
+  forfeit unwinds at the prevailing price rather than winning or losing).</p>
+
+<div class="panel">
+  <table>
+    {{ ui.statrow('your brier', mine, false, 4) }}
+    {{ ui.statrow('market brier', market, false, 4) }}
+    {{ ui.statrow('skill vs market', edge, false, 4) }}
+  </table>
+  <p class="prov">Positive skill means your forecast beat the price you were
+    looking at. Absolute Brier alone says little: calling a heavy favourite
+    at 0.90 and being right scores 0.01 and demonstrates nothing the market
+    had not already told you.</p>
+</div>
+
+{% if scored %}
+<h2>calibration</h2>
+<div class="panel">
+<table>
+  <tr><th>bucket</th><th class="num">n</th><th class="num">you said</th>
+      <th class="num">actual</th><th class="num">gap</th></tr>
+  {% for b in calibration %}{% if b.n %}
+  <tr>
+    <td>{{ '%.0f%%'|format(b.lo * 100) }}–{{ '%.0f%%'|format(b.hi * 100) }}</td>
+    <td class="num">{{ b.n }}</td>
+    <td class="num">{{ '%.0f%%'|format(b.mean_forecast * 100) }}</td>
+    <td class="num">{{ '%.0f%%'|format(b.actual * 100) }}</td>
+    <td class="num {{ 'pos' if b.gap >= 0 else 'neg' }}">
+      {{ '%+.0f%%'|format(b.gap * 100) }}</td>
+  </tr>
+  {% endif %}{% endfor %}
+</table>
+<p class="prov">Well calibrated means that of the calls made at ~70%, about
+  70% happened.</p>
+</div>
+
+{% if tags %}
+<h2>by reason</h2>
+<div class="panel">
+<table>
+  <tr><th>tag</th><th class="num">n</th><th class="num">mean skill vs market</th></tr>
+  {% for t in tags %}
+  <tr><td>{{ t.tag }}</td><td class="num">{{ t.n }}</td>
+      <td class="num {{ 'pos' if (t.mean_edge or 0) > 0 else 'neg' }}">
+        {{ '%+.4f'|format(t.mean_edge) if t.mean_edge is not none else '—' }}</td></tr>
+  {% endfor %}
+</table>
+<p class="prov">Every count here is small by construction. A tag used three
+  times has told you nothing.</p>
+</div>
+{% endif %}
+{% endif %}
+
+<h2>entries</h2>
+<div class="panel">
+<table>
+  <tr><th>#</th><th>when</th><th>matchup</th><th class="num">you</th>
+      <th class="num">market</th><th>action</th><th>tags</th><th>result</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.id }}</td>
+    <td>{{ r.created_at.strftime('%m-%d %H:%M') }}</td>
+    <td>{% if r.match_id %}<a href="{{ url_for('match', match_id=r.match_id) }}">
+        {{ r.team_a_name or '?' }} v {{ r.team_b_name or '?' }}</a>
+        {% else %}{{ r.team_a_name or '?' }} v {{ r.team_b_name or '?' }}{% endif %}</td>
+    <td class="num">{{ '%.0f%%'|format(r.prob_team_a * 100) }}</td>
+    <td class="num">{% if r.market_prob_a is not none %}
+        {{ '%.0f%%'|format(r.market_prob_a * 100) }}
+      {% else %}<span class="gap">none</span>{% endif %}</td>
+    <td>{{ r.action }}</td>
+    <td class="prov">{{ (r.tags or [])|join(', ') }}</td>
+    <td>{{ r.result or (r.match_status or 'open') }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="prov">Entries with no market price can never be compared to it.
+  Log before the match starts, while the quote is live.</p>
+{% endblock %}

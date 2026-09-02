@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Slate — Edge Desk{% endblock %}
+{% block body %}
+<h1>Slate</h1>
+<p class="sub">{{ rows|length }} events. Gate-passing first.
+  The gate governs price commentary only — every event still gets a full
+  dossier.</p>
+
+{% if not rows %}
+  <div class="panel">Nothing listed. Has the collector run?
+    See <a href="{{ url_for('health') }}">health</a>.</div>
+{% else %}
+<div class="panel">
+<table>
+  <tr>
+    <th></th><th>start</th><th>teams</th>
+    <th class="num">spread</th><th class="num">overround</th>
+    <th class="num">depth</th><th>ticker</th>
+  </tr>
+  {% for r in rows %}
+  <tr>
+    <td>{% if r.gate_pass %}<span class="ok">●</span>{% endif %}</td>
+    <td>{{ r.scheduled_at.strftime('%m-%d %H:%M') if r.scheduled_at else '?' }}</td>
+    <td>
+      {% if r.match_id %}
+        <a href="{{ url_for('match', match_id=r.match_id) }}">{{ r.teams }}</a>
+      {% else %}
+        {{ r.teams }} <span class="gap">[unbound]</span>
+      {% endif %}
+    </td>
+    <td class="num">{{ r.best_spread if r.best_spread is not none else '—' }}</td>
+    <td class="num">{{ r.overround if r.overround is not none else '—' }}</td>
+    <td class="num">{{ r.top_depth if r.top_depth is not none else '—' }}</td>
+    <td class="prov">{{ r.event_ticker }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+<p class="prov">● passes the gate: 2 sides, spread ≤5¢, overround ≤106,
+  volume &gt;0, top-of-book depth ≥25.
+  <span class="gap">unbound</span> means no bo3 match is linked, so no
+  dossier can be built — see <a href="{{ url_for('queue') }}">queue</a>.</p>
+{% endif %}
+{% endblock %}

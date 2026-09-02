@@ -117,3 +117,27 @@ def test_no_show_risk_rises_with_concurrent_tournaments():
 
 def test_no_show_risk_unavailable_without_history():
     assert no_show_risk([], A, now=NOW).value is None
+
+
+def test_measured_pool_mean_overrides_the_module_constant():
+    """The constant is a figure from an early look at the board. Shrinking
+    toward a stale prior compares a team against a population that no
+    longer exists, so the caller passes the measured rate when it has it."""
+    rows = [match(i, A) for i in range(1, 4)]
+    default = forfeit_rate(rows, A, now=NOW)
+    measured = forfeit_rate(rows, A, pool_mean=0.20, now=NOW)
+    assert measured.value > default.value
+    assert measured.raw == default.raw          # same evidence, different prior
+
+
+def test_pool_mean_is_ignored_when_not_shrinking():
+    rows = [match(1, A, defwin=True), match(2, A)]
+    assert forfeit_rate(rows, A, shrunk=False, pool_mean=0.9,
+                        now=NOW).value == pytest.approx(0.5)
+
+
+def test_no_show_risk_passes_the_pool_mean_through():
+    rows = [match(i, A) for i in range(1, 4)]
+    low = no_show_risk(rows, A, pool_mean=0.01, now=NOW)
+    high = no_show_risk(rows, A, pool_mean=0.30, now=NOW)
+    assert high.value > low.value

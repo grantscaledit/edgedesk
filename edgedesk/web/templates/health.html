@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Health — Edge Desk{% endblock %}
+{% block body %}
+<h1>Health <span class="{{ overall }}">{{ overall|upper }}</span></h1>
+<p class="sub">A green scheduled job proves it did not crash, not that rows
+  landed. These checks read the data.</p>
+<div class="panel">
+<table>
+  {% for name, (status, msg) in checks %}
+  <tr><th>{{ name }}</th>
+      <td><span class="{{ status }}">{{ status|upper }}</span> {{ msg }}</td></tr>
+  {% endfor %}
+</table>
+</div>
+<h2>recent runs</h2>
+<div class="panel">
+<table>
+  <tr><th>source</th><th>status</th><th>started</th><th class="num">rows</th><th>error</th></tr>
+  {% for r in runs %}
+  <tr>
+    <td>{{ r.source }}</td>
+    <td class="{{ 'ok' if r.status == 'ok' else 'fail' }}">{{ r.status }}</td>
+    <td>{{ r.started_at.strftime('%m-%d %H:%M') }}</td>
+    <td class="num">{{ r.rows_written }}</td>
+    <td class="prov">{{ (r.error or '')[:60] }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

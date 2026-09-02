@@ -1,0 +1,74 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Edge Desk{% endblock %}</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --line:#262b36; --ink:#e6e9ef;
+    --mute:#8b93a7; --accent:#6ea8fe; --ok:#5bd6a0; --warn:#e8c96a;
+    --bad:#ef6f6f;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  header { border-bottom:1px solid var(--line); padding:10px 18px;
+           display:flex; gap:18px; align-items:baseline; }
+  header .brand { font-weight:700; letter-spacing:.5px; }
+  main { padding:18px; max-width:1180px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:14px; margin:22px 0 8px; color:var(--mute);
+       text-transform:uppercase; letter-spacing:.08em; }
+  .sub { color:var(--mute); margin-bottom:14px; }
+  .panel { background:var(--panel); border:1px solid var(--line);
+           border-radius:6px; padding:14px 16px; margin-bottom:14px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:900px){ .cols{grid-template-columns:1fr;} }
+  table { border-collapse:collapse; width:100%; }
+  th, td { text-align:left; padding:4px 10px 4px 0;
+           border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--mute); font-weight:500; }
+  td.num, th.num { text-align:right; }
+  .v { font-weight:700; }
+  .prov { color:var(--mute); font-size:12px; }
+  .gap { color:var(--warn); }
+  .thin { color:var(--warn); }
+  .ok{color:var(--ok);} .warn{color:var(--warn);} .fail{color:var(--bad);}
+  .pos{color:var(--ok);} .neg{color:var(--bad);}
+  .flash { padding:9px 12px; border-radius:5px; margin-bottom:12px;
+           border:1px solid var(--line); }
+  .flash.ok{border-color:var(--ok);} .flash.warn{border-color:var(--warn);}
+  .flash.error{border-color:var(--bad);}
+  form.decide { display:grid; gap:10px; }
+  label { color:var(--mute); font-size:12px; display:block; }
+  input, select { background:#0c0e13; color:var(--ink);
+                  border:1px solid var(--line); border-radius:4px;
+                  padding:6px 8px; font:inherit; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; align-items:end; }
+  .tags { display:flex; gap:10px; flex-wrap:wrap; }
+  .tags label { display:flex; gap:5px; align-items:center; color:var(--ink);
+                font-size:12px; }
+  button { background:var(--accent); color:#08101f; border:0;
+           border-radius:4px; padding:8px 16px; font:inherit;
+           font-weight:700; cursor:pointer; }
+  .foot { color:var(--mute); border-top:1px solid var(--line);
+          margin-top:24px; padding-top:12px; font-size:12px; }
+</style>
+<header>
+  <span class="brand">EDGE DESK</span>
+  <a href="{{ url_for('slate') }}">slate</a>
+  <a href="{{ url_for('log') }}">log</a>
+  <a href="{{ url_for('queue') }}">queue</a>
+  <a href="{{ url_for('health') }}">health</a>
+</header>
+<main>
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="flash {{ cat }}">{{ msg }}</div>
+  {% endfor %}
+  {% block body %}{% endblock %}
+  <div class="foot">
+    Evidence only. No fair value, no recommendation. Every rate shows its
+    sample size, effective sample size and staleness.
+  </div>
+</main>

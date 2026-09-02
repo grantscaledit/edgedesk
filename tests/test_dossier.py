@@ -270,3 +270,19 @@ def test_dossier_shows_tournament_context(conn):
     assert "Playoff Stage" in out
     assert "online" in out
     assert "25,000" in out
+
+
+@pytest.mark.parametrize("stage,tournament,expected", [
+    ("ESL CL S52: NA - Cup 1 Playoffs", "ESL CL S52: NA - Cup 1", "Playoffs"),
+    ("ESL CL S52: NA - Cup 1", "ESL CL S52: NA - Cup 1", None),
+    ("Group Stage", "Some Other Cup", "Group Stage"),
+    (None, "Anything", None),
+    ("Playoffs", None, "Playoffs"),
+])
+def test_stage_suffix_strips_the_repeated_tournament_name(stage, tournament,
+                                                          expected):
+    """bo3 stage titles repeat the tournament name in full and append the
+    phase. Printing both gave a 130-character line saying one thing twice."""
+    from importlib import import_module
+    mod = load()
+    assert mod._stage_suffix(stage, tournament) == expected

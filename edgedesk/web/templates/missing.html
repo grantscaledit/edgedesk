@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>No match #{{ match_id }}</h1>
+<p class="sub">Pick one from the <a href="{{ url_for('slate') }}">slate</a>.</p>
+{% endblock %}

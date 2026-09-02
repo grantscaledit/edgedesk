@@ -27,60 +27,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from edgedesk import db, queries                                 # noqa: E402
+from edgedesk import db, decisions, queries                      # noqa: E402
 from edgedesk.stats import scoring                               # noqa: E402
 
-TAGS = ["talent_gap", "fatigue", "forfeit_risk", "map_pool", "form",
-        "price_value", "liquidity", "roster_churn", "coin_flip", "h2h",
-        "sample_too_thin"]
-
-INSERT = """
-INSERT INTO decisions
-  (user_id, match_id, kalshi_event_ticker, team_a_id, team_b_id,
-   prob_team_a, action, price_cents, size_contracts, tags, market_prob_a)
-VALUES (%(user)s, %(match)s, %(event)s, %(a)s, %(b)s, %(prob)s, %(action)s,
-        %(price)s, %(size)s, %(tags)s, %(market)s)
-RETURNING id;
-"""
-
-FIND_EVENT = """
-SELECT event_ticker FROM kalshi_markets
-WHERE match_id = %s AND series_ticker = 'KXCS2GAME' LIMIT 1;
-"""
-
-
-def market_prob_for(conn, event_ticker, team_a_id):
-    """(implied probability for team A, quote age in minutes) or (None, None).
-
-    Mid rather than ask: the ask is what you would pay, but the fair
-    reference for scoring a forecast is the middle of the market, and using
-    the side you happened to trade would bias the benchmark your way.
-
-    Reads the last recorded snapshot rather than the live slate, so logging
-    a decision after the market closes still captures a benchmark. Without
-    it, any retrospective entry is unscoreable against the market forever.
-    """
-    if not event_ticker:
-        return None, None
-    q = queries.last_quote(conn, event_ticker, team_a_id)
-    if not q:
-        return None, None
-    bid, ask = q.get("yes_bid"), q.get("yes_ask")
-    if bid is None or ask is None:
-        if q.get("last_price") is None:
-            return None, None
-        prob = q["last_price"] / 100.0
-    else:
-        prob = ((bid + ask) / 2) / 100.0
-    age = None
-    if q.get("captured_at"):
-        from datetime import datetime, timezone
-        captured = q["captured_at"]
-        if captured.tzinfo is None:
-            captured = captured.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - captured).total_seconds() / 60
-    return round(prob, 4), age
-
+# Re-exported so the CLI help and the web form cannot drift apart.
+TAGS = decisions.TAGS
+market_prob_for = decisions.market_prob_for
 
 def main():
     ap = argparse.ArgumentParser()
@@ -112,19 +64,14 @@ def main():
         m = queries.match(conn, a.match)
         if not m:
             sys.exit(f"no match with id {a.match}")
-        ev = conn.execute(FIND_EVENT, (a.match,)).fetchone()
-        event_ticker = ev["event_ticker"] if ev else None
-        market, quote_age = market_prob_for(conn, event_ticker, m["team_a_id"])
+        try:
+            dec_id, market, quote_age = decisions.log(
+                conn, a.match, a.prob_a, a.action, a.price, a.size, tags,
+                a.user)
+        except ValueError as exc:
+            sys.exit(str(exc))
 
-        row = conn.execute(INSERT, {
-            "user": a.user, "match": a.match, "event": event_ticker,
-            "a": m["team_a_id"], "b": m["team_b_id"], "prob": a.prob_a,
-            "action": a.action, "price": a.price, "size": a.size,
-            "tags": tags, "market": market,
-        }).fetchone()
-        conn.commit()
-
-    print(f"\n  logged decision #{row['id']}")
+    print(f"\n  logged decision #{dec_id}")
     print(f"    {m['team_a_name']} vs {m['team_b_name']}")
     print(f"    your P(team A) : {a.prob_a:.0%}")
     if market is not None:

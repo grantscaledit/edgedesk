@@ -30,6 +30,7 @@ PACKAGES = [
     "edgedesk/resolve/__init__.py",
     "edgedesk/sources/__init__.py",
     "edgedesk/stats/__init__.py",
+    "edgedesk/web/__init__.py",
 ]
 
 MODULES = [
@@ -47,6 +48,8 @@ MODULES = [
     "edgedesk.queries",
     "edgedesk.stats.scoring",
     "edgedesk.stats.roster",
+    "edgedesk.decisions",
+    "edgedesk.web.app",
 ]
 
 SCRIPTS = [
@@ -63,6 +66,7 @@ SCRIPTS = [
     "scripts/sync_players.py",
     "scripts/sync_tournaments.py",
     "scripts/explore_bo3.py",
+    "scripts/serve.py",
 ]
 
 MIGRATIONS = [
@@ -74,6 +78,17 @@ MIGRATIONS = [
     "migrations/006_players.sql",
     "migrations/007_tournaments.sql",
     "migrations/run.py",
+]
+
+TEMPLATES = [
+    "edgedesk/web/templates/base.html",
+    "edgedesk/web/templates/_macros.html",
+    "edgedesk/web/templates/slate.html",
+    "edgedesk/web/templates/match.html",
+    "edgedesk/web/templates/log.html",
+    "edgedesk/web/templates/queue.html",
+    "edgedesk/web/templates/health.html",
+    "edgedesk/web/templates/missing.html",
 ]
 
 TESTS = [
@@ -94,6 +109,7 @@ TESTS = [
     "tests/test_review.py",
     "tests/test_decide.py",
     "tests/test_roster.py",
+    "tests/test_web.py",
     "tests/test_h2h_dedup.py",
     "tests/fixtures/kalshi_markets.json",
 ]
@@ -115,10 +131,13 @@ SYMBOLS = [
     ("edgedesk/stats/scoring.py", ["def brier(", "def skill_vs_market(",
                                    "def calibration("]),
     ("scripts/review.py", ["def do_score("]),
-    ("scripts/decide.py", ["def market_prob_for("]),
+    ("scripts/decide.py", ["def main("]),
     ("edgedesk/stats/roster.py", ["def churn_term(", "def describe("]),
     ("scripts/sync_players.py", ["def main("]),
     ("scripts/sync_tournaments.py", ["def main("]),
+    ("edgedesk/web/app.py", ["def create_app(", "def decide("]),
+    ("edgedesk/decisions.py", ["def log(", "def validate(",
+                               "def market_prob_for("]),
 ]
 
 problems: list[str] = []
@@ -141,6 +160,7 @@ def main() -> int:
                 "a namespace package and later imports fail)")
     check_files("scripts", SCRIPTS)
     check_files("migrations", MIGRATIONS)
+    check_files("templates", TEMPLATES)
     check_files("tests", TESTS)
 
     print()

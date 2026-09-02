@@ -29,6 +29,26 @@ from edgedesk.stats import team as tstats                        # noqa: E402
 W = 78
 
 
+def _stage_suffix(stage_title, tournament):
+    """The part of the stage title that is not just the tournament name.
+
+    bo3 stage titles usually repeat the whole tournament name and append the
+    phase: "ESL Challenger League Season 52: North America - Cup 1" becomes
+    "... Cup 1 Playoffs". Printing both in full gives a 130-character line
+    that says one thing twice.
+    """
+    if not stage_title:
+        return None
+    if not tournament:
+        return stage_title
+    if stage_title == tournament:
+        return None
+    if stage_title.startswith(tournament):
+        rest = stage_title[len(tournament):].strip(" -—:·")
+        return rest or None
+    return stage_title
+
+
 def rule(char="-"):
     print(char * W)
 
@@ -92,10 +112,11 @@ def team_block(name, rows, map_rows, team_id, pool_ff, days,
     row("form (last 5)", tstats.form(rows, team_id, 5))
     print(f"    {'form string':<22} {tstats.form_string(rows, team_id, 8)} "
           "(most recent first, '-' = forfeit)")
-    row("forfeit rate", tstats.forfeit_rate(rows, team_id))
+    row("forfeit rate", tstats.forfeit_rate(rows, team_id, pool_mean=pool_ff))
     r = rstats.describe(roster_rows or [], change_times or [])
     churn = r["changes_30d"] if roster_rows else None
-    ff = tstats.no_show_risk(rows, team_id, roster_changes_30d=churn)
+    ff = tstats.no_show_risk(rows, team_id, roster_changes_30d=churn,
+                             pool_mean=pool_ff)
     row("no-show risk", ff)
     if ff.note:
         print(f"    {'':22} note: {ff.note}")
@@ -151,10 +172,10 @@ def show_match(conn, match_id, days):
     # with different incentives, and forfeit risk in particular is not
     # comparable between them.
     if m.get("tournament"):
-        bits = [m["tournament"]]
-        if m.get("stage_title") and m["stage_title"] != m["tournament"]:
-            bits.append(m["stage_title"])
-        print(f"  {' — '.join(bits)}")
+        print(f"  {m['tournament']}")
+        stage = _stage_suffix(m.get("stage_title"), m["tournament"])
+        if stage:
+            print(f"  stage: {stage}")
         extra = []
         if m.get("event_type"):
             extra.append(m["event_type"])
