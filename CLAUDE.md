@@ -64,6 +64,13 @@ No JS build step. Server-rendered HTML only.
   ("Diamant" vs "Diamant Esports"). Fuzzy-map them and keep the raw strings.
 - **No CT/T splits and no half-time scores exist anywhere in bo3.** Round
   differential is computable; side splits are not. Do not spec them.
+- **`/players` works (~20k rows); `/players_stats`, `/game_players`,
+  `/rosters` and `/team_players` are all 404**, and game objects carry NO
+  player keys. bo3 gives identity and current team membership; it has no
+  performance data whatsoever. Ratings require HLTV. Probed 2026-09 — do
+  not re-probe.
+- **`filter[players.team_id][eq]` is silently ignored** (returned five
+  unrelated teams). Pull the whole player table and index client-side.
 - `limit` is ignored for small values — read the page size from the
   envelope's `total.limit`.
 - **`filter[games.match_id][in]` IS honoured** (probed 2026-09: five ids
@@ -71,6 +78,26 @@ No JS build step. Server-rendered HTML only.
   But you MUST paginate — 50 matches averages ~130 games against a page size
   of 100, and the overflow is dropped silently, which reads as a match that
   only played two maps rather than as an error.
+
+## bo3 endpoint inventory (probed 2026-09 — do not re-probe)
+
+Exist: `/matches` (79.7k) · `/teams` (8.4k) · `/games` (143.9k) ·
+`/tournaments` (3.1k) · `/players` (20.3k) · `/series` (741) ·
+`/stages` (10.3k) · `/maps` (46) · `/countries` (254) ·
+`/disciplines` (8) · `/streams` (2.5k).
+
+404, confirmed absent: `/vetoes` `/picks` `/bans` (veto data is a PERMANENT
+gap, not an unexplored one) · `/players_stats` `/player_stats`
+`/game_players` `/match_players` `/team_players` (no performance data
+anywhere — ratings require HLTV) · `/rankings` `/ratings` `/standings` ·
+`/rosters` `/lineups` `/transfers` · `/odds` `/predictions`.
+
+Field names differ where you would not expect: tournaments use `name`,
+stages use `title`. Matches carry `tournament_id`, `stage_id` and
+`round_id`.
+
+Use `scripts/explore_bo3.py` to check anything else; it verifies filters
+were actually honoured rather than trusting the status code.
 
 ## Source trust order
 
@@ -102,7 +129,19 @@ edgedesk/stats/maps.py   round pct, diff, map pool   (done)
 edgedesk/stats/h2h.py    head-to-head                (done)
 edgedesk/queries.py      row-fetching for the above  (done)
 scripts/dossier.py       render a full dossier       (done)
+edgedesk/stats/scoring.py  brier, calibration, fees  (done)
+scripts/decide.py        log a decision              (done)
+scripts/review.py        score + calibration report  (done)
 ```
+
+**Log the no-bets.** A log of only placed bets is a biased sample of the
+decisions made and will flatter the tool. Every decision stores the market's
+implied probability at logging time — unrecoverable afterwards, and the only
+benchmark that makes an absolute Brier score mean anything.
+
+**Forfeits are never scored.** Kalshi resolves a pre-game forfeit to Fair
+Market Price, so the position unwinds at the prevailing price rather than
+winning or losing. Those rows are recorded as `fmp` and excluded.
 
 Do **not** add HLTV scrapers or Flask routes yet. Anything needing player or
 roster data is Phase 2 and returns `Stat.unavailable` for now.

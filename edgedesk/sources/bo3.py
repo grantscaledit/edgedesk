@@ -163,6 +163,20 @@ class Bo3:
             if seen_pages > max_pages * 100:
                 return
 
+    def iter_tournaments(self, page_size: int = 100, progress: bool = False):
+        """All tournaments (~3.1k). Carries `name`, `tier`, `tier_rank`."""
+        yield from self._pages("/tournaments", page_size=page_size,
+                               progress=progress,
+                               **{"filter[tournaments.discipline_id][eq]":
+                                  DISCIPLINE_CS2})
+
+    def iter_stages(self, page_size: int = 100, progress: bool = False):
+        """All stages (~10.3k). Note the field is `title`, not `name`."""
+        yield from self._pages("/stages", page_size=page_size,
+                               progress=progress,
+                               **{"filter[stages.discipline_id][eq]":
+                                  DISCIPLINE_CS2})
+
     def teams(self, ids: list[int]) -> list[dict]:
         """Batch team lookup. [in] is one of only two supported operators."""
         if not ids:
@@ -177,6 +191,22 @@ class Bo3:
             out.extend(data.get("results") or [])
             time.sleep(self.delay)
         return out
+
+    def iter_players(self, page_size: int = 100, progress: bool = False):
+        """Every player bo3 knows (~20k). No filtering is possible.
+
+        `filter[players.team_id][eq]` is SILENTLY IGNORED -- probed 2026-09,
+        it returned players from five unrelated teams. Same trap as the date
+        filters. So the only way to get a team's roster is to pull the whole
+        table and index it client-side, which at ~204 pages is roughly 90
+        seconds and needs doing only when rosters are refreshed.
+
+        bo3 has NO player performance data: /players_stats, /game_players,
+        /rosters and /team_players are all 404, and game objects carry no
+        player keys. Ratings require HLTV. Do not re-probe this.
+        """
+        yield from self._pages("/players", page_size=page_size,
+                               progress=progress)
 
     def games(self, match_id: int) -> list[dict]:
         data = self._get(
@@ -273,6 +303,7 @@ def parse_match(m: dict) -> dict:
         "decided_by_default": status == STATUS_DEFWIN,
         "tier": m.get("tier"),
         "tier_rank": m.get("tier_rank"),
+        "stage_id": m.get("stage_id"),
     }
 
 
@@ -294,6 +325,49 @@ def parse_team(t: dict) -> dict:
         "acronym": t.get("acronym"),
         "bo3_rank": t.get("rank"),
         "country_id": t.get("country_id"),
+    }
+
+
+def parse_tournament(t: dict) -> dict:
+    return {
+        "bo3_id": t.get("id"),
+        "name": t.get("name"),
+        "slug": t.get("slug"),
+        "tier": t.get("tier"),
+        "tier_rank": t.get("tier_rank"),
+        "series_id": t.get("series_id"),
+        "region_id": t.get("region_id"),
+        "event_type": t.get("event_type"),
+        "event_level": t.get("event_level"),
+        "prize": t.get("prize"),
+        "status": t.get("status"),
+        "start_date": parse_ts(t.get("start_date")),
+        "end_date": parse_ts(t.get("end_date")),
+    }
+
+
+def parse_stage(s: dict) -> dict:
+    """Stages use `title`, tournaments use `name`. Do not swap them."""
+    return {
+        "bo3_id": s.get("id"),
+        "tournament_bo3_id": s.get("tournament_id"),
+        "title": s.get("title"),
+        "format_type": s.get("format_type"),
+    }
+
+
+def parse_player(p: dict) -> dict:
+    """Flatten a bo3 player. `team_id` is CURRENT membership, often null."""
+    return {
+        "bo3_id": p.get("id"),
+        "nickname": p.get("nickname") or p.get("slug"),
+        "first_name": p.get("first_name") or None,
+        "last_name": p.get("last_name") or None,
+        "country_id": p.get("country_id"),
+        "birthday": p.get("birthday") or None,
+        "role": p.get("role") or None,
+        "slug": p.get("slug"),
+        "team_bo3_id": p.get("team_id"),
     }
 
 

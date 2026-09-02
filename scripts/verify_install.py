@@ -45,6 +45,8 @@ MODULES = [
     "edgedesk.stats.maps",
     "edgedesk.stats.h2h",
     "edgedesk.queries",
+    "edgedesk.stats.scoring",
+    "edgedesk.stats.roster",
 ]
 
 SCRIPTS = [
@@ -56,6 +58,11 @@ SCRIPTS = [
     "scripts/healthcheck.py",
     "scripts/notify_failure.py",
     "scripts/dossier.py",
+    "scripts/decide.py",
+    "scripts/review.py",
+    "scripts/sync_players.py",
+    "scripts/sync_tournaments.py",
+    "scripts/explore_bo3.py",
 ]
 
 MIGRATIONS = [
@@ -63,6 +70,9 @@ MIGRATIONS = [
     "migrations/002_price_detail.sql",
     "migrations/003_bo3.sql",
     "migrations/004_team_aliases.sql",
+    "migrations/005_decisions.sql",
+    "migrations/006_players.sql",
+    "migrations/007_tournaments.sql",
     "migrations/run.py",
 ]
 
@@ -80,6 +90,11 @@ TESTS = [
     "tests/test_stats_maps.py",
     "tests/test_stats_h2h.py",
     "tests/test_dossier.py",
+    "tests/test_scoring.py",
+    "tests/test_review.py",
+    "tests/test_decide.py",
+    "tests/test_roster.py",
+    "tests/test_h2h_dedup.py",
     "tests/fixtures/kalshi_markets.json",
 ]
 
@@ -97,6 +112,13 @@ SYMBOLS = [
     ("edgedesk/stats/h2h.py", ["def record(", "def common_opponents("]),
     ("edgedesk/queries.py", ["def dossier_rows(", "def slate("]),
     ("scripts/dossier.py", ["def show_match(", "def show_slate("]),
+    ("edgedesk/stats/scoring.py", ["def brier(", "def skill_vs_market(",
+                                   "def calibration("]),
+    ("scripts/review.py", ["def do_score("]),
+    ("scripts/decide.py", ["def market_prob_for("]),
+    ("edgedesk/stats/roster.py", ["def churn_term(", "def describe("]),
+    ("scripts/sync_players.py", ["def main("]),
+    ("scripts/sync_tournaments.py", ["def main("]),
 ]
 
 problems: list[str] = []

@@ -23,7 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from edgedesk import db, queries                                 # noqa: E402
-from edgedesk.stats import h2h, maps, team as tstats             # noqa: E402
+from edgedesk.stats import h2h, maps, roster as rstats           # noqa: E402
+from edgedesk.stats import team as tstats                        # noqa: E402
 
 W = 78
 
@@ -80,7 +81,8 @@ def show_slate(conn):
     print("    python scripts/dossier.py --match KXCS2GAME-26SEP031000HAVULAV")
 
 
-def team_block(name, rows, map_rows, team_id, pool_ff, days):
+def team_block(name, rows, map_rows, team_id, pool_ff, days,
+               roster_rows=None, change_times=None):
     section(name)
     played = [r for r in rows if r.get("status") == "finished"]
     print(f"    sample: {len(played)} completed matches over {days}d, "
@@ -91,8 +93,10 @@ def team_block(name, rows, map_rows, team_id, pool_ff, days):
     print(f"    {'form string':<22} {tstats.form_string(rows, team_id, 8)} "
           "(most recent first, '-' = forfeit)")
     row("forfeit rate", tstats.forfeit_rate(rows, team_id))
-    row("no-show risk", tstats.no_show_risk(rows, team_id))
-    ff = tstats.no_show_risk(rows, team_id)
+    r = rstats.describe(roster_rows or [], change_times or [])
+    churn = r["changes_30d"] if roster_rows else None
+    ff = tstats.no_show_risk(rows, team_id, roster_changes_30d=churn)
+    row("no-show risk", ff)
     if ff.note:
         print(f"    {'':22} note: {ff.note}")
     row("fatigue", tstats.fatigue(rows), pct=False, places=0)
@@ -100,6 +104,18 @@ def team_block(name, rows, map_rows, team_id, pool_ff, days):
     row("map win rate", maps.map_win_rate(map_rows, team_id))
     row("round win %", maps.round_win_pct(map_rows, team_id))
     row("avg round diff", maps.avg_round_diff(map_rows, team_id), pct=False)
+
+    if roster_rows:
+        names = ", ".join(p["nickname"] for p in r["players"])
+        age = (f"{r['staleness_days']:.0f}d old"
+               if r["staleness_days"] is not None else "age unknown")
+        flag = "" if r["complete"] else f"  [{r['size']}/5 — INCOMPLETE]"
+        print(f"    {'lineup':<22} {names}{flag}")
+        print(f"    {'':22} captured {age}, "
+              f"{r['changes_30d']} change(s) in 30d")
+    else:
+        print(f"    {'lineup':<22} not captured — run "
+              "scripts/sync_players.py")
 
     pool = maps.map_pool(map_rows, team_id, min_maps=2)
     if pool:
@@ -127,14 +143,38 @@ def show_match(conn, match_id, days):
     a_id, b_id = m["team_a_id"], m["team_b_id"]
     head(f"{ta['canonical_name']}  vs  {tb['canonical_name']}")
     when = m["scheduled_at"].strftime("%Y-%m-%d %H:%M UTC") if m["scheduled_at"] else "?"
-    print(f"  {when}   Bo{m['format_bo'] or '?'}   tier {m['tier'] or '?'}")
+    tier = f"{m['tier'] or '?'}{m.get('tier_rank') or ''}"
+    print(f"  {when}   Bo{m['format_bo'] or '?'}   tier {tier}")
+
+    # Tournament context changes how every figure below should be read: a
+    # tier-S LAN and a tier-D online qualifier are different competitions
+    # with different incentives, and forfeit risk in particular is not
+    # comparable between them.
+    if m.get("tournament"):
+        bits = [m["tournament"]]
+        if m.get("stage_title") and m["stage_title"] != m["tournament"]:
+            bits.append(m["stage_title"])
+        print(f"  {' — '.join(bits)}")
+        extra = []
+        if m.get("event_type"):
+            extra.append(m["event_type"])
+        if m.get("event_level"):
+            extra.append(m["event_level"])
+        if m.get("prize"):
+            extra.append(f"prize {m['prize']:,}")
+        if extra:
+            print(f"  {'  ·  '.join(extra)}")
+    else:
+        print("  tournament: not linked — run scripts/sync_tournaments.py")
     if m["bo3_slug"]:
         print(f"  bo3.gg/matches/{m['bo3_slug']}")
 
     team_block(f"{ta['canonical_name']}", data["a_matches"], data["a_maps"],
-               a_id, data["pool_forfeit"], days)
+               a_id, data["pool_forfeit"], days,
+               data.get("a_roster"), data.get("a_roster_changes"))
     team_block(f"{tb['canonical_name']}", data["b_matches"], data["b_maps"],
-               b_id, data["pool_forfeit"], days)
+               b_id, data["pool_forfeit"], days,
+               data.get("b_roster"), data.get("b_roster_changes"))
 
     section("HEAD TO HEAD")
     rec = h2h.record(data["all_matches"], a_id, b_id)
@@ -156,8 +196,10 @@ def show_match(conn, match_id, days):
         print(f"    note: {co['note']}")
 
     section("DATA GAPS")
-    print("    player ratings / talent gap   not collected (Phase 2, HLTV)")
-    print("    roster continuity             not collected (Phase 2)")
+    print("    player ratings / talent gap   not collected — bo3 has no "
+          "player stats at all (HLTV)")
+    print("    roster continuity             needs per-map participation "
+          "(HLTV); lineups themselves are collected")
     print("    CT/T side split               not available from bo3 at all")
     print("    veto data                     rarely published; irrelevant in Bo1")
 

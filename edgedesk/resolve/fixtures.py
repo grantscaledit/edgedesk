@@ -164,7 +164,11 @@ def score_candidate(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
         _aliases(candidate, "a"),
         _aliases(candidate, "b"),
     )
-    event_score = similarity(kalshi_event, candidate.get("event_name"))
+    # Best of the tournament name and the stage title. Kalshi's rules text
+    # names one or the other depending on the event, and picking wrong would
+    # zero a term that is 10% of the score.
+    event_score = best_similarity(kalshi_event or "",
+                                  *_event_names(candidate))
     total = round(team_score * (W_TEAM * 2) + event_score * W_EVENT, 4)
     return {
         **candidate,
@@ -173,6 +177,20 @@ def score_candidate(kalshi_a: str, kalshi_b: str, kalshi_event: str | None,
         "score": total,
         "swapped": swapped,
     }
+
+
+def _event_names(candidate: dict) -> tuple:
+    """Every name this candidate's event goes by.
+
+    SQL hands back one comma-joined string (concat_ws over tournament name
+    and stage title); a list is accepted too.
+    """
+    raw = candidate.get("event_name")
+    if not raw:
+        return ()
+    if isinstance(raw, str):
+        return tuple(x.strip() for x in raw.split(",") if x.strip())
+    return tuple(x for x in raw if x)
 
 
 def _aliases(candidate: dict, side: str) -> tuple:

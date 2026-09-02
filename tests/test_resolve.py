@@ -347,3 +347,53 @@ def test_resolve_works_without_a_start_time():
     """kalshi_start is optional; callers that omit it must behave as before."""
     r = resolve("OLDBOYS-", "RoundsGG", None, [cand(1, "OLDBOYS PL", "ROUNDS")])
     assert r["verdict"] == "accept"
+
+
+# ---------------------------------------------------------------- events
+
+
+def test_event_name_lifts_the_score_ceiling():
+    """Regression, and the reason every real bind printed exactly 0.90.
+
+    CANDIDATES supplied `NULL::text AS event_name`, so event_score was
+    always 0 and no candidate could exceed team_score*0.9. Against
+    ACCEPT=0.85 that made the real bar a team score of 0.944, far stricter
+    than the design.
+    """
+    from edgedesk.resolve.fixtures import score_candidate
+    blind = score_candidate("HAVU", "Lavked", "ESEA Season 58",
+                            {"team_a_name": "HAVU", "team_b_name": "Lavked",
+                             "event_name": None})
+    seeing = score_candidate("HAVU", "Lavked", "ESEA Season 58",
+                             {"team_a_name": "HAVU", "team_b_name": "Lavked",
+                              "event_name": "ESEA Season 58"})
+    assert blind["score"] == 0.9
+    assert seeing["score"] == 1.0
+
+
+def test_event_takes_the_better_of_tournament_and_stage():
+    """SQL joins tournament name and stage title with a comma; whichever
+    matches Kalshi's wording should win."""
+    from edgedesk.resolve.fixtures import score_candidate
+    c = {"team_a_name": "A", "team_b_name": "B",
+         "event_name": "BLAST Premier Fall Final,Playoff Stage"}
+    by_tournament = score_candidate("A", "B", "BLAST Premier Fall Final", c)
+    by_stage = score_candidate("A", "B", "Playoff Stage", c)
+    assert by_tournament["event_score"] == 1.0
+    assert by_stage["event_score"] == 1.0
+
+
+def test_a_wrong_event_name_does_not_sink_a_good_team_match():
+    """The event term is a tiebreaker at 10%; it must never veto a pair the
+    names and the clock both agree on."""
+    from edgedesk.resolve.fixtures import resolve
+    r = resolve("HAVU", "Lavked", "Some Other Cup",
+                [cand(1, "HAVU", "Lavked", event="ESEA Season 58")])
+    assert r["verdict"] == "accept"
+
+
+def test_event_names_accept_a_list_as_well_as_a_string():
+    from edgedesk.resolve.fixtures import _event_names
+    assert _event_names({"event_name": "A,B"}) == ("A", "B")
+    assert _event_names({"event_name": ["A", "B"]}) == ("A", "B")
+    assert _event_names({"event_name": None}) == ()

@@ -93,9 +93,14 @@ def conn():
     return FakeConn({
         "JOIN teams ta ON ta.id = m.team_a_id": [{
             "id": 99, "scheduled_at": NOW + timedelta(hours=6),
-            "format_bo": 3, "tier": "b", "bo3_slug": "big-vs-small",
+            "format_bo": 3, "tier": "b", "tier_rank": 3,
+            "bo3_slug": "big-vs-small", "stage_title": "Playoff Stage",
             "team_a_id": A, "team_a_name": "Alpha",
-            "team_b_id": B, "team_b_name": "Beta"}],
+            "team_b_id": B, "team_b_name": "Beta",
+            "tournament": "ESEA Season 58 Advanced",
+            "tournament_tier": "b", "tournament_tier_rank": 3,
+            "prize": 25000, "event_type": "online",
+            "event_level": "regular"}],
         "FROM matches m\nWHERE (m.team_a_id": lambda p: (
             a_matches if p.get("team") == A else b_matches),
         "FROM match_maps mm": lambda p: (
@@ -157,10 +162,18 @@ def test_forfeit_is_excluded_from_win_rate_in_the_output(conn):
 
 
 def test_missing_data_is_named_not_omitted(conn):
+    """Gaps name the DEPENDENCY, not a phase number -- a reader needs to
+    know what would supply the data, and phase labels drift."""
     out = render(load(), conn)
     assert "DATA GAPS" in out
     assert "CT/T" in out
-    assert "Phase 2" in out
+    assert "HLTV" in out
+
+
+def test_lineup_absence_is_stated_with_the_remedy(conn):
+    """No roster captured yet must read as an instruction, not a blank."""
+    out = render(load(), conn)
+    assert "sync_players" in out
 
 
 def test_dossier_states_it_gives_no_recommendation(conn):
@@ -246,3 +259,14 @@ def test_either_identifier_works_on_either_flag(argv, expect_match,
 
     assert captured.get("match") == expect_match
     assert captured.get("event") == expect_event
+
+
+def test_dossier_shows_tournament_context(conn):
+    """Tier-S LAN and tier-D online qualifier are different competitions
+    with different incentives; forfeit risk especially is not comparable
+    between them, so the reader needs to see which one this is."""
+    out = render(load(), conn)
+    assert "ESEA Season 58 Advanced" in out
+    assert "Playoff Stage" in out
+    assert "online" in out
+    assert "25,000" in out

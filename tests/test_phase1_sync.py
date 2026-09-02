@@ -155,9 +155,10 @@ def test_sync_inserts_new_matches_with_correct_arity(mod):
     assert inserts, "no match insert was issued"
     rows = inserts[0][2]
     assert len(rows) == 2
-    # 11 placeholders + now() == 12 columns. A mismatch here is the failure
-    # a static check cannot see.
-    assert all(len(r) == 11 for r in rows), [len(r) for r in rows]
+    # 13 placeholders + now() == 14 columns. A mismatch here is the failure
+    # a static check cannot see; this assertion has already caught one
+    # widening (tournament and stage ids).
+    assert all(len(r) == 13 for r in rows), [len(r) for r in rows]
     assert rows[0][10] == "match-1"          # slug at the index re-read uses
 
 

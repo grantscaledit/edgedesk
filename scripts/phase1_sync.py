@@ -63,7 +63,9 @@ SELECT match_id FROM match_external_ids WHERE source='bo3' AND external_id=%s;
 UPDATE_MATCH = """
 UPDATE matches SET status=%(status)s, bo3_status=%(bo3_status)s,
   winner_team_id=%(winner_team_id)s, decided_by_default=%(decided_by_default)s,
-  scheduled_at=%(scheduled_at)s, format_bo=%(bo_type)s, updated_at=now()
+  scheduled_at=%(scheduled_at)s, format_bo=%(bo_type)s,
+  bo3_tournament_id=COALESCE(%(tournament_id)s, bo3_tournament_id),
+  bo3_stage_id=COALESCE(%(stage_id)s, bo3_stage_id), updated_at=now()
 WHERE id=%(id)s;
 """
 
@@ -76,7 +78,10 @@ SELECT m.id AS match_id,
        tb.canonical_name AS team_b_name, tb.acronym AS team_b_acronym,
        aa.aliases AS team_a_aliases,
        ba.aliases AS team_b_aliases,
-       m.scheduled_at, m.format_bo, m.bo3_slug, NULL::text AS event_name
+       m.scheduled_at, m.format_bo, m.bo3_slug,
+       -- Both names, comma joined; scoring takes the better match. Kalshi's
+       -- rules text sometimes names the tournament and sometimes the stage.
+       concat_ws(',', t.name, m.stage_title) AS event_name
 FROM matches m
 JOIN teams ta ON ta.id = m.team_a_id
 JOIN teams tb ON tb.id = m.team_b_id
@@ -88,6 +93,7 @@ LEFT JOIN LATERAL (
   SELECT string_agg(alias_name, ',') AS aliases
   FROM v_team_aliases WHERE team_id = tb.id
 ) ba ON true
+LEFT JOIN tournaments t ON t.bo3_id = m.bo3_tournament_id
 WHERE m.scheduled_at IS NOT NULL
 ORDER BY m.scheduled_at;
 """
@@ -95,8 +101,9 @@ ORDER BY m.scheduled_at;
 INSERT_MATCHES = """
 INSERT INTO matches
   (team_a_id, team_b_id, scheduled_at, format_bo, status, bo3_status,
-   winner_team_id, decided_by_default, tier, tier_rank, bo3_slug, updated_at)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now());
+   winner_team_id, decided_by_default, tier, tier_rank, bo3_slug,
+   bo3_tournament_id, bo3_stage_id, updated_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now());
 """
 
 BIND = """
@@ -238,7 +245,8 @@ def sync(conn, days: int, dry_run: bool) -> int:
             continue
         row = (a, b, m["start_date"], m["bo_type"], m["status"],
                m["bo3_status"], team_map.get(str(m.get("winner_team_id"))),
-               m["decided_by_default"], m["tier"], m["tier_rank"], m["slug"])
+               m["decided_by_default"], m["tier"], m["tier_rank"], m["slug"],
+               m.get("tournament_id"), m.get("stage_id"))
         local = match_map.get(bo3_id)
         if local:
             to_update.append({
@@ -247,6 +255,8 @@ def sync(conn, days: int, dry_run: bool) -> int:
                 "winner_team_id": team_map.get(str(m.get("winner_team_id"))),
                 "decided_by_default": m["decided_by_default"],
                 "scheduled_at": m["start_date"], "bo_type": m["bo_type"],
+                "tournament_id": m.get("tournament_id"),
+                "stage_id": m.get("stage_id"),
             })
         elif m.get("slug"):
             to_insert.append((bo3_id, row))

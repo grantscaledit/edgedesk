@@ -119,24 +119,32 @@ def fatigue(rows, now=None) -> Stat:
 
 
 def no_show_risk(rows, team_id, concurrent_tournaments: int = 1,
-                 now=None) -> Stat:
-    """clamp(forfeit_rate + 0.01·(concurrent−1) + 0.01·next_48h, 0, 0.40)
+                 roster_changes_30d: int | None = None, now=None) -> Stat:
+    """clamp(forfeit_rate + 0.02·churn + 0.01·(concurrent−1) + 0.01·next_48h,
+    0, 0.40)
 
-    PARTIAL: the spec's roster-churn term (0.02 · roster_changes_30d) needs
-    roster data this project does not yet collect, so it is omitted rather
-    than silently treated as zero. `note` says so -- a risk score that hides
-    which of its inputs are missing is worse than no score.
+    `roster_changes_30d` is None when roster history has not been captured
+    for this team yet -- bo3 publishes today's lineup and no past, so the
+    history only accrues from the day sync_players starts running. When it
+    is None the term is omitted AND the note says so, because a risk score
+    that hides which of its inputs are missing is worse than no score.
     """
     ff = forfeit_rate(rows, team_id, shrunk=True, now=now)
     if ff.value is None:
         return Stat.unavailable("no completed matches to estimate forfeit rate")
     upcoming = matches_in_window(rows, 2.0, now, future=True)
-    score = (ff.value
+    churn = 0.0 if roster_changes_30d is None else 0.02 * roster_changes_30d
+    score = (ff.value + churn
              + 0.01 * max(0, concurrent_tournaments - 1)
              + 0.01 * upcoming)
+    raw = f"ff {ff.raw}, {upcoming} upcoming in 48h"
+    note = None
+    if roster_changes_30d is None:
+        note = "excludes roster churn — no roster history captured yet"
+    else:
+        raw += f", {roster_changes_30d} roster change(s) in 30d"
     return Stat(
         value=round(min(max(score, 0.0), 0.40), 4),
         n=ff.n, n_eff=ff.n_eff, staleness_days=ff.staleness_days,
-        raw=f"ff {ff.raw}, {upcoming} upcoming in 48h",
-        note="excludes roster churn — roster data not collected yet",
+        raw=raw, note=note,
     )

@@ -75,13 +75,53 @@ WHERE s.event_ticker = %(event)s AND s.series_ticker = 'KXCS2GAME'
 ORDER BY s.yes_ask NULLS LAST;
 """
 
+# Last recorded quote for one team's market, OPEN OR CLOSED.
+#
+# v_slate deliberately shows only live markets, which is right for the
+# slate and wrong here: a decision logged after a match closes would lose
+# its market benchmark forever, and that benchmark is the only thing that
+# separates forecasting skill from reading a price. The snapshot table is
+# append-only precisely so this stays recoverable.
+LAST_QUOTE = """
+SELECT p.yes_bid, p.yes_ask, p.last_price, p.captured_at, m.status
+FROM kalshi_price_snapshots p
+JOIN kalshi_markets m ON m.ticker = p.ticker
+WHERE m.event_ticker = %(event)s
+  AND m.series_ticker = 'KXCS2GAME'
+  AND m.team_id = %(team)s
+ORDER BY p.captured_at DESC
+LIMIT 1;
+"""
+
+ROSTER = """
+SELECT team_id, player_id, captured_at, source, nickname, first_name,
+       last_name, country_id, role
+FROM v_roster_latest WHERE team_id = %(team)s;
+"""
+
+# Capture moments AFTER the first: the first snapshot is a change from
+# nothing on our side, not a roster move, and counting it would overstate
+# churn for every team on the day we start watching them.
+ROSTER_CHANGES = """
+SELECT captured_at FROM (
+  SELECT captured_at,
+         row_number() OVER (ORDER BY captured_at) AS rn
+  FROM v_roster_changes WHERE team_id = %(team)s
+) t WHERE rn > 1 ORDER BY captured_at DESC;
+"""
+
 MATCH_TEAMS = """
-SELECT m.id, m.scheduled_at, m.format_bo, m.tier, m.bo3_slug,
+SELECT m.id, m.scheduled_at, m.format_bo, m.tier, m.tier_rank, m.bo3_slug,
+       m.stage_title,
        m.team_a_id, ta.canonical_name AS team_a_name,
-       m.team_b_id, tb.canonical_name AS team_b_name
+       m.team_b_id, tb.canonical_name AS team_b_name,
+       t.name AS tournament, t.tier AS tournament_tier,
+       t.tier_rank AS tournament_tier_rank, t.prize, t.event_type,
+       t.event_level
 FROM matches m
 JOIN teams ta ON ta.id = m.team_a_id
 JOIN teams tb ON tb.id = m.team_b_id
+LEFT JOIN tournaments t ON t.bo3_id = m.bo3_tournament_id
 WHERE m.id = %(match)s;
 """
 
@@ -106,6 +146,24 @@ def team_maps(conn, team_id: int, days: int = 365) -> list[dict]:
 def team(conn, team_id: int) -> dict | None:
     row = conn.execute(TEAM, {"team": team_id}).fetchone()
     return dict(row) if row else None
+
+
+def last_quote(conn, event_ticker: str, team_id: int) -> dict | None:
+    """Most recent quote for a team's market, regardless of market status."""
+    if not event_ticker or team_id is None:
+        return None
+    row = conn.execute(LAST_QUOTE,
+                       {"event": event_ticker, "team": team_id}).fetchone()
+    return dict(row) if row else None
+
+
+def roster(conn, team_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(ROSTER, {"team": team_id}).fetchall()]
+
+
+def roster_change_times(conn, team_id: int) -> list:
+    return [r["captured_at"] for r in
+            conn.execute(ROSTER_CHANGES, {"team": team_id}).fetchall()]
 
 
 def slate(conn) -> list[dict]:
@@ -179,4 +237,8 @@ def dossier_rows(conn, match_id: int, days: int = 365) -> dict | None:
         "b_maps": b_maps,
         "all_maps": all_maps,
         "pool_forfeit": pool_forfeit_rate(conn, days),
+        "a_roster": roster(conn, a),
+        "b_roster": roster(conn, b),
+        "a_roster_changes": roster_change_times(conn, a),
+        "b_roster_changes": roster_change_times(conn, b),
     }
